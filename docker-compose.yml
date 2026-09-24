@@ -11,7 +11,7 @@ services:
       - "8088:8088"
     # Keep it light on an already-busy host.
     mem_limit: 192m
-    cpus: "0.5"
+    cpus: 0.5
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8088/healthz"]
       interval: 30s
