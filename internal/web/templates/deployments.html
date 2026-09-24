@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deployment history — Staging Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <h1>Deployment history{{if .Slot}} — {{.Slot}}{{end}}</h1>
+    {{template "navlinks" .}}
+  </div>
+</header>
+<main>
+  <section class="panel">
+    {{template "deploytable" .Deployments}}
+  </section>
+</main>
+</body>
+</html>

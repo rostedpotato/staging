@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Slots — Staging Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <h1>Slot management</h1>
+    {{template "navlinks" .}}
+  </div>
+  {{if .Notice}}<div class="banner ok">{{.Notice}}</div>{{end}}
+  {{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
+</header>
+<main>
+  <section class="panel">
+    <p class="hint">Hidden slots are removed from the dashboard, booking, and deploy
+      lists. Use this for legacy/dead slots.</p>
+    <table class="audit">
+      <thead><tr><th>Slot</th><th>Visibility</th><th>Action</th></tr></thead>
+      <tbody>
+        {{range .Slots}}
+          <tr>
+            <td>{{.Name}}</td>
+            <td>{{if .Hidden}}<span class="tag st-failed">hidden</span>{{else}}<span class="tag st-success">visible</span>{{end}}</td>
+            <td>
+              <form method="post" action="/admin/slots/toggle">
+                <input type="hidden" name="slot" value="{{.Name}}">
+                {{if .Hidden}}
+                  <input type="hidden" name="hidden" value="0">
+                  <button class="btn small" type="submit">Show</button>
+                {{else}}
+                  <input type="hidden" name="hidden" value="1">
+                  <button class="btn small danger" type="submit">Hide</button>
+                {{end}}
+              </form>
+            </td>
+          </tr>
+        {{else}}
+          <tr><td colspan="3" class="empty">No slots discovered.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

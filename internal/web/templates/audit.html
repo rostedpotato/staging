@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Audit log — Staging Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <h1>Audit log</h1>
+    {{template "navlinks" .}}
+  </div>
+</header>
+<main>
+  <form method="get" action="/audit" class="searchbar">
+    <input type="text" name="q" value="{{.Query}}" placeholder="Search actor, action, resource, metadata…">
+    <button class="btn small" type="submit">Search</button>
+    {{if .Query}}<a class="navlink" href="/audit">clear</a>{{end}}
+  </form>
+  <table class="audit">
+    <thead>
+      <tr><th>Time (UTC)</th><th>Actor</th><th>Action</th><th>Resource</th><th>Metadata</th></tr>
+    </thead>
+    <tbody>
+      {{range .Entries}}
+        <tr>
+          <td>{{.CreatedAt}}</td>
+          <td>{{.ActorUsername}}</td>
+          <td><span class="tag">{{.Action}}</span></td>
+          <td>{{.ResourceType}}{{if .ResourceID}} #{{.ResourceID}}{{end}}</td>
+          <td><code>{{.Metadata}}</code></td>
+        </tr>
+      {{else}}
+        <tr><td colspan="5" class="empty">No audit entries yet.</td></tr>
+      {{end}}
+    </tbody>
+  </table>
+</main>
+</body>
+</html>

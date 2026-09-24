@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deployment #{{.Dep.ID}} — Staging Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <h1>Deployment #{{.Dep.ID}}</h1>
+    {{template "navlinks" .}}
+  </div>
+</header>
+<main>
+  <section class="panel">
+    <div class="row"><span class="k">Slot</span><span class="v">{{.Dep.Slot}}</span></div>
+    <div class="row"><span class="k">Service</span><span class="v">{{.Dep.Service}} ({{.Dep.JenkinsJob}})</span></div>
+    <div class="row"><span class="k">Ref</span><span class="v">{{.Dep.RefType}}: {{.Dep.Ref}}</span></div>
+    <div class="row"><span class="k">By</span><span class="v">{{.Dep.Username}}</span></div>
+    <div class="row"><span class="k">Status</span><span class="v"><span id="status" class="tag st-{{.Dep.Status}}">{{.Dep.Status}}</span></span></div>
+    {{if .Dep.BuildURL}}<div class="row"><span class="k">Build</span><span class="v"><a class="navlink" href="{{.Dep.BuildURL}}" target="_blank" rel="noopener">{{.Dep.BuildURL}}</a></span></div>{{end}}
+    {{if .Dep.ErrorMessage}}<div class="banner error">{{.Dep.ErrorMessage}}</div>{{end}}
+
+    {{if and .IsAdmin (not .Active)}}
+    <form method="post" action="/deploy/rollback" class="rollback"
+          onsubmit="return confirm('Roll back this slot to the previous successful deployment?');">
+      <input type="hidden" name="from" value="{{.Dep.ID}}">
+      <button class="btn small danger" type="submit">Roll back to previous success</button>
+    </form>
+    {{end}}
+  </section>
+
+  <section class="panel">
+    <h2>Console log</h2>
+    <pre id="log" class="console">{{.Log}}</pre>
+  </section>
+</main>
+
+<script>
+(function () {
+  var active = {{if .Active}}true{{else}}false{{end}};
+  var logEl = document.getElementById('log');
+  var statusEl = document.getElementById('status');
+  // Count existing lines so the stream resumes after them.
+  var since = logEl.textContent ? logEl.textContent.replace(/\n$/, '').split('\n').filter(function(s){return s.length}).length : 0;
+  if (!active) return;
+  var es = new EventSource('/deployments/stream/{{.Dep.ID}}?since=' + since);
+  es.addEventListener('log', function (e) {
+    logEl.textContent += e.data + '\n';
+    logEl.scrollTop = logEl.scrollHeight;
+  });
+  es.addEventListener('status', function (e) {
+    statusEl.textContent = e.data;
+    statusEl.className = 'tag st-' + e.data;
+    es.close();
+    setTimeout(function(){ location.reload(); }, 800);
+  });
+  es.onerror = function () { /* keep the last state on transient errors */ };
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,14 @@
+{{/* Shared top navigation, used by every page for a consistent nav bar. */}}
+{{define "navlinks"}}
+<div class="user">
+  <a class="navlink" href="/">Dashboard</a>
+  <a class="navlink" href="/deploy">Deploy</a>
+  <a class="navlink" href="/bookings">Bookings</a>
+  <a class="navlink" href="/deployments">History</a>
+  {{if .IsAdmin}}<a class="navlink" href="/admin/users">Users</a>
+  <a class="navlink" href="/admin/slots">Slots</a>
+  <a class="navlink" href="/audit">Audit log</a>{{end}}
+  {{if .Username}}<span class="who">{{.Username}}{{if .IsAdmin}} · admin{{end}}</span>
+  <a class="navlink" href="/logout">Logout</a>{{end}}
+</div>
+{{end}}

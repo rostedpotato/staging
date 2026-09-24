@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Staging Dashboard</title>
+  <meta http-equiv="refresh" content="{{.RefreshSeconds}}">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <h1>Staging Self-Service — Dashboard</h1>
+    {{template "navlinks" .}}
+  </div>
+  <div class="meta">
+    <span>Scanned: {{.ScannedAt}}</span>
+    <span>Slots: {{len .Slots}}</span>
+    <span>Auto-refresh: {{.RefreshSeconds}}s</span>
+  </div>
+  {{if .Error}}<div class="banner error">Discovery warning: {{.Error}}</div>{{end}}
+</header>
+
+<main>
+  {{if not .Slots}}
+    <p class="empty">No slots discovered. Check <code>appRoot</code> and permissions.</p>
+  {{end}}
+
+  <div class="grid">
+  {{range .Slots}}
+    <section class="card status-{{.Overall}}">
+      <div class="card-head">
+        <h2>{{.Name}}</h2>
+        <span class="badge {{.Overall}}">{{.Overall}}</span>
+      </div>
+
+      <div class="row"><span class="k">Branch</span><span class="v">{{if .Branch}}{{.Branch}}{{else}}—{{end}}</span></div>
+      <div class="row"><span class="k">Commit</span><span class="v">{{if .Commit}}<code>{{.Commit}}</code>{{else}}—{{end}}</span></div>
+      {{if .Version}}<div class="row"><span class="k">Version</span><span class="v">{{.Version}}</span></div>{{end}}
+      {{if .CommitTime}}<div class="row"><span class="k">Committed</span><span class="v">{{.CommitTime}}</span></div>{{end}}
+
+      <div class="services">
+        {{range .Services}}
+          <div class="svc svc-{{.State}}">
+            <span class="dot {{if .Found}}{{.State}}{{else}}missing{{end}}"></span>
+            <span class="svc-name">{{.Name}}</span>
+            <span class="svc-status">
+              {{if .Found}}{{.Status}}{{if .HostPort}} · :{{.HostPort}}{{end}}{{else}}not found{{end}}
+            </span>
+          </div>
+        {{end}}
+      </div>
+
+      <div class="booking">
+        {{if .Booking}}
+          <span class="lock">🔒 booked</span>
+          <span class="by">{{.Booking.Username}} until {{fmtTime .Booking.End}}</span>
+        {{else}}
+          <span class="free">available</span>
+        {{end}}
+      </div>
+
+      {{if .Domains}}
+      <div class="domains">
+        {{range .Domains}}<a class="domain" href="https://{{.}}" target="_blank" rel="noopener">{{.}}</a>{{end}}
+      </div>
+      {{end}}
+    </section>
+  {{end}}
+  </div>
+</main>
+
+<footer>
+  <span>Read-only view · Phase 1 · no changes are made to staging.</span>
+</footer>
+</body>
+</html>

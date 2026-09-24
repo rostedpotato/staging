@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Deploy — Staging Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <h1>Deploy</h1>
+    {{template "navlinks" .}}
+  </div>
+  {{if .Notice}}<div class="banner ok">{{.Notice}}</div>{{end}}
+  {{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
+  {{if not .Enabled}}<div class="banner error">Deploy is disabled. Set deploy.enabled + Jenkins credentials in config.</div>{{end}}
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Trigger a deployment</h2>
+    <form method="post" action="/deploy/start" class="bookform" id="deployForm">
+      <label>Service
+        <select name="service" id="deployService" required>
+          <option value="" disabled selected>choose…</option>
+          {{range .Services}}<option value="{{.Key}}" data-tag="{{if .TagParam}}1{{else}}0{{end}}">{{.Label}} ({{.Job}})</option>{{end}}
+        </select>
+      </label>
+      <label>Slot
+        <select name="slot" required>
+          <option value="" disabled selected>choose…</option>
+          {{range .Slots}}<option value="{{.}}">{{.}}</option>{{end}}
+        </select>
+      </label>
+      <label>Branch <input type="text" name="branch" id="deployBranch" placeholder="e.g. master"></label>
+      <label>Tag <input type="text" name="tag" id="deployTag" placeholder="e.g. v2.4.1"></label>
+      <button type="submit" class="btn" {{if not .Enabled}}disabled{{end}}>Deploy</button>
+    </form>
+    <p class="hint">Provide EITHER branch OR tag (not both). Web Backoffice supports branch only.</p>
+  </section>
+
+  <script>
+  (function () {
+    var branch = document.getElementById('deployBranch');
+    var tag = document.getElementById('deployTag');
+    var service = document.getElementById('deployService');
+    if (!branch || !tag) return;
+
+    function tagAllowed() {
+      var opt = service && service.selectedOptions[0];
+      return !opt || opt.getAttribute('data-tag') !== '0';
+    }
+
+    // Mutual exclusivity: filling one disables the other. Tag is also fully
+    // disabled for services that only support a branch (e.g. Web Backoffice).
+    function sync() {
+      var b = branch.value.trim().length > 0;
+      var t = tag.value.trim().length > 0;
+      var tagOK = tagAllowed();
+      tag.disabled = b || !tagOK;
+      branch.disabled = t && tagOK;
+      tag.placeholder = tagOK ? 'e.g. v2.4.1' : 'not supported for this service';
+    }
+    branch.addEventListener('input', sync);
+    tag.addEventListener('input', sync);
+
+    function applyService() {
+      if (!tagAllowed()) tag.value = '';
+      sync();
+    }
+    if (service) service.addEventListener('change', applyService);
+    applyService();
+  })();
+  </script>
+
+  <section class="panel">
+    <h2>Recent deployments</h2>
+    {{template "deploytable" .Recent}}
+    <p><a class="navlink" href="/deployments">View full history →</a></p>
+  </section>
+</main>
+</body>
+</html>
+
+{{define "deploytable"}}
+<table class="audit">
+  <thead><tr><th>ID</th><th>Slot</th><th>Service</th><th>Ref</th><th>By</th><th>Status</th><th>When</th></tr></thead>
+  <tbody>
+    {{range .}}
+      <tr>
+        <td><a class="navlink" href="/deployments/{{.ID}}">#{{.ID}}</a></td>
+        <td>{{.Slot}}</td>
+        <td>{{.Service}}</td>
+        <td>{{.RefType}}:{{.Ref}}</td>
+        <td>{{.Username}}</td>
+        <td><span class="tag st-{{.Status}}">{{.Status}}</span></td>
+        <td>{{fmtTime .CreatedTime}}</td>
+      </tr>
+    {{else}}
+      <tr><td colspan="7" class="empty">No deployments yet.</td></tr>
+    {{end}}
+  </tbody>
+</table>
+{{end}}

@@ -1,0 +1,10 @@
+config.json
+config.local.json
+staging-platform
+local-mock
+data
+*.db
+*.db-shm
+*.db-wal
+.git
+README.md

@@ -1,0 +1,31 @@
+{
+  "listen": ":8088",
+  "dbPath": "data/platform.db",
+  "discovery": {
+    "appRoot": "/data/app",
+    "slotDirPrefix": "agent-",
+    "repoSubdir": "parkee-agent-backoffice",
+    "nginxSitesDir": "/etc/nginx/sites-enabled",
+    "dockerBin": "docker",
+    "services": ["watersheep", "fisherman"],
+    "refreshSeconds": 15
+  },
+  "auth": {
+    "sessionTTLHours": 12,
+    "secure": false
+  },
+  "deploy": {
+    "enabled": false,
+    "jenkinsURL": "https://jenkins-agent.sistemparkiran.com",
+    "jenkinsUser": "agent",
+    "jenkinsToken": "",
+    "pollSeconds": 5,
+    "requireBooking": true,
+    "services": [
+      { "key": "ws",  "label": "Watersheep",     "job": "deploy-ws",  "tagParam": true },
+      { "key": "fs",  "label": "Fisherman",      "job": "deploy-fs",  "tagParam": true },
+      { "key": "wbo", "label": "Web Backoffice", "job": "deploy-wbo", "tagParam": false }
+    ]
+  },
+  "hiddenSlots": []
+}

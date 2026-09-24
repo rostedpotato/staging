@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Users — Staging Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <h1>User management</h1>
+    {{template "navlinks" .}}
+  </div>
+  {{if .Notice}}<div class="banner ok">{{.Notice}}</div>{{end}}
+  {{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
+  {{if .NewPassword}}
+  <div class="banner ok">
+    Temporary password for <b>{{.NewPasswordFor}}</b>: <code>{{.NewPassword}}</code>
+    — copy it now and hand it to them securely. It will not be shown again.
+    They must change it on first login.
+  </div>
+  {{end}}
+</header>
+<main>
+  <section class="panel">
+    <h2>Create account</h2>
+    <p class="hint">Accounts are provisioned here — signing in does NOT create an
+      account. A random temporary password is generated; the user must set
+      their own password on first login.</p>
+    <form method="post" action="/admin/users/create" class="bookform">
+      <label>Username <input type="text" name="username" placeholder="e.g. jdoe" pattern="[a-z0-9._-]{3,32}" required></label>
+      <label>Name <input type="text" name="name" placeholder="Optional"></label>
+      <label>Role
+        <select name="role">
+          <option value="engineering" selected>engineering</option>
+          <option value="admin">admin</option>
+        </select>
+      </label>
+      <button type="submit" class="btn">Create</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <p class="hint">Roles &amp; access are managed here, in the app.
+      Change a user's role, disable them, or reset their password below.</p>
+    <table class="audit">
+      <thead><tr><th>Username</th><th>Name</th><th>Role</th><th>Status</th><th>Password</th><th>Last login</th><th>Actions</th></tr></thead>
+      <tbody>
+        {{range .Users}}
+          <tr>
+            <td>{{.Username}}{{if eq .ID $.SelfID}} <span class="tag">you</span>{{end}}</td>
+            <td>{{.Name}}</td>
+            <td><span class="tag">{{.Role}}</span></td>
+            <td><span class="tag st-{{if eq .Status "active"}}success{{else}}failed{{end}}">{{.Status}}</span></td>
+            <td>{{if .MustResetPassword}}<span class="tag st-failed">must reset</span>{{else}}<span class="tag st-success">set</span>{{end}}</td>
+            <td>{{if .LastLogin.Valid}}{{.LastLogin.String}}{{else}}—{{end}}</td>
+            <td class="actions">
+              <form method="post" action="/admin/users/role">
+                <input type="hidden" name="id" value="{{.ID}}">
+                {{if eq .Role "admin"}}
+                  <input type="hidden" name="role" value="engineering">
+                  <button class="btn small" type="submit">Make engineering</button>
+                {{else}}
+                  <input type="hidden" name="role" value="admin">
+                  <button class="btn small" type="submit">Make admin</button>
+                {{end}}
+              </form>
+              <form method="post" action="/admin/users/status">
+                <input type="hidden" name="id" value="{{.ID}}">
+                {{if eq .Status "active"}}
+                  <input type="hidden" name="status" value="disabled">
+                  <button class="btn small danger" type="submit" {{if eq .ID $.SelfID}}disabled{{end}}>Disable</button>
+                {{else}}
+                  <input type="hidden" name="status" value="active">
+                  <button class="btn small" type="submit">Enable</button>
+                {{end}}
+              </form>
+              <form method="post" action="/admin/users/reset-password" onsubmit="return confirm('Generate a new temporary password for {{.Username}}?');">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <button class="btn small" type="submit">Reset password</button>
+              </form>
+            </td>
+          </tr>
+        {{else}}
+          <tr><td colspan="7" class="empty">No users yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

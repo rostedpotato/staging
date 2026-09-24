@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bookings — Staging Platform</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <h1>Slot Bookings</h1>
+    {{template "navlinks" .}}
+  </div>
+  {{if .Notice}}<div class="banner ok">{{.Notice}}</div>{{end}}
+  {{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
+</header>
+
+<main>
+  <section class="panel">
+    <h2>Book a slot</h2>
+    <p class="hint">Bookings are per day. Leave "Until" empty to book a single day.</p>
+    <form method="post" action="/bookings/create" class="bookform">
+      <label>Slot
+        <select name="slot" required>
+          <option value="" disabled selected>choose…</option>
+          {{range .Slots}}<option value="{{.}}">{{.}}</option>{{end}}
+        </select>
+      </label>
+      <label>From (date) <input type="date" name="startDate" required></label>
+      <label>Until (date, optional) <input type="date" name="endDate"></label>
+      <label class="wide">Purpose <input type="text" name="purpose" placeholder="e.g. Payment QA" maxlength="200"></label>
+      <button type="submit" class="btn">Book</button>
+    </form>
+  </section>
+
+  <section class="panel">
+    <h2>Current &amp; upcoming bookings</h2>
+    <table class="audit">
+      <thead><tr><th>Slot</th><th>User</th><th>From</th><th>Until</th><th>Purpose</th><th></th></tr></thead>
+      <tbody>
+        {{range .Active}}
+          <tr>
+            <td><b>{{.Slot}}</b></td>
+            <td>{{.Username}}</td>
+            <td>{{fmtDate .Start}}</td>
+            <td>{{fmtDate .End}}</td>
+            <td>{{.Purpose}}</td>
+            <td>
+              {{if or (eq .Username $.Username) $.IsAdmin}}
+              <form method="post" action="/bookings/release" onsubmit="return confirm('Release this booking?');">
+                <input type="hidden" name="id" value="{{.ID}}">
+                <button class="btn small {{if ne .Username $.Username}}danger{{end}}" type="submit">
+                  {{if eq .Username $.Username}}Release{{else}}Override{{end}}
+                </button>
+              </form>
+              {{end}}
+            </td>
+          </tr>
+        {{else}}
+          <tr><td colspan="6" class="empty">No active bookings.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>My recent bookings</h2>
+    <table class="audit">
+      <thead><tr><th>Slot</th><th>From</th><th>Until</th><th>Status</th><th>Purpose</th></tr></thead>
+      <tbody>
+        {{range .Mine}}
+          <tr>
+            <td>{{.Slot}}</td>
+            <td>{{fmtDate .Start}}</td>
+            <td>{{fmtDate .End}}</td>
+            <td><span class="tag">{{.Status}}</span></td>
+            <td>{{.Purpose}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="5" class="empty">You have no bookings yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

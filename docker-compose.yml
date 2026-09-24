@@ -1,0 +1,29 @@
+# Staging Self-Service Platform (all phases). Runs a tiny Go binary + embedded
+# SQLite in one container. Mounts host resources READ-ONLY for discovery
+# (docker.sock, /data/app, nginx sites) so it never changes staging by itself.
+services:
+  staging-platform:
+    build: .
+    image: staging-platform:latest
+    container_name: staging-platform
+    restart: unless-stopped
+    ports:
+      - "8088:8088"
+    # Keep it light on an already-busy host.
+    mem_limit: 192m
+    cpus: "0.5"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8088/healthz"]
+      interval: 30s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    volumes:
+      # Config (create config.json from config.example.json).
+      - ./config.json:/app/config.json:ro
+      # Persistent SQLite DB (users, sessions, bookings, deployments, audit).
+      - ./data:/app/data
+      # Read-only host inspection sources:
+      - /var/run/docker.sock:/var/run/docker.sock:ro   # docker ps / inspect
+      - /data/app:/data/app:ro                          # slot dirs + git + .env
+      - /etc/nginx/sites-enabled:/etc/nginx/sites-enabled:ro  # domain mapping
