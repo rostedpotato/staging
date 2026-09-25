@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"parkee/staging-platform/internal/auth"
@@ -17,6 +18,12 @@ import (
 	"parkee/staging-platform/internal/discovery"
 	"parkee/staging-platform/internal/store"
 )
+
+// scanCacheTTL bounds how often the (relatively expensive: docker ps + git
+// subprocesses per slot) discovery scan actually runs. Dashboard freshness
+// isn't critical here (this isn't a monitoring tool), so a coarse cache
+// keeps repeated page loads/clicks cheap.
+const scanCacheTTL = time.Minute
 
 //go:embed templates/*.html
 var templatesFS embed.FS
@@ -31,6 +38,14 @@ type Server struct {
 	st     *store.Store
 	deploy *deploy.Service
 	tmpl   *template.Template
+
+	// rawScanMu guards the cached, unfiltered discovery result. Hidden-slot
+	// filtering is applied fresh on every call (cheap, DB-only) so admin
+	// show/hide toggles take effect immediately despite the scan cache.
+	rawScanMu sync.Mutex
+	rawScanAt time.Time
+	rawSlots  []discovery.Slot
+	rawErr    error
 }
 
 func NewServer(cfg *config.Config, disc *discovery.Discoverer, a *auth.Authenticator, st *store.Store, dep *deploy.Service) (*Server, error) {
@@ -117,18 +132,42 @@ type slotView struct {
 	Booking *store.Reservation
 }
 
-// scan lists slots, hiding those hidden by config OR by the in-app admin setting.
-func (s *Server) scan(ctx context.Context) ([]discovery.Slot, error) {
-	dbHidden, _ := s.st.HiddenSlots()
-	hidden := func(slot string) bool {
-		return s.cfg.Hidden(slot) || dbHidden[slot]
+// rawScan runs (or returns the cached result of) an unfiltered discovery
+// scan. Cached for scanCacheTTL since discovery shells out to docker/git for
+// every slot on every call, which is too costly to redo on each
+// request/click; this isn't a monitoring tool so slightly stale
+// versions/container state is fine.
+func (s *Server) rawScan(ctx context.Context) ([]discovery.Slot, error) {
+	s.rawScanMu.Lock()
+	defer s.rawScanMu.Unlock()
+	if time.Since(s.rawScanAt) < scanCacheTTL {
+		return s.rawSlots, s.rawErr
 	}
-	return s.disc.Scan(ctx, hidden)
+	s.rawSlots, s.rawErr = s.disc.Scan(ctx, nil)
+	s.rawScanAt = time.Now()
+	return s.rawSlots, s.rawErr
+}
+
+// scan lists slots, hiding those hidden by config OR by the in-app admin
+// setting. The hidden-slot filter itself is always applied fresh (cheap,
+// DB-backed) on top of the cached raw scan so admin show/hide toggles are
+// reflected immediately.
+func (s *Server) scan(ctx context.Context) ([]discovery.Slot, error) {
+	slots, err := s.rawScan(ctx)
+	dbHidden, _ := s.st.HiddenSlots()
+	visible := make([]discovery.Slot, 0, len(slots))
+	for _, sl := range slots {
+		if s.cfg.Hidden(sl.Name) || dbHidden[sl.Name] {
+			continue
+		}
+		visible = append(visible, sl)
+	}
+	return visible, err
 }
 
 // allSlotNames returns every discovered slot (including hidden), for admin UI.
 func (s *Server) allSlotNames(ctx context.Context) []string {
-	slots, _ := s.disc.Scan(ctx, nil)
+	slots, _ := s.rawScan(ctx)
 	names := make([]string, 0, len(slots))
 	for _, sl := range slots {
 		names = append(names, sl.Name)

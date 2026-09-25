@@ -84,7 +84,7 @@ func (c *Config) withDefaults() {
 		c.Discovery.Services = []string{"watersheep", "fisherman"}
 	}
 	if c.Discovery.RefreshSeconds <= 0 {
-		c.Discovery.RefreshSeconds = 15
+		c.Discovery.RefreshSeconds = 300
 	}
 	if c.DBPath == "" {
 		c.DBPath = "data/platform.db"

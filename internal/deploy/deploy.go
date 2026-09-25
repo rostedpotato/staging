@@ -42,12 +42,12 @@ type Request struct {
 }
 
 var (
-	ErrDisabled     = errors.New("deploy feature is not enabled")
-	ErrUnknownSvc   = errors.New("unknown service")
-	ErrTagNotAllow  = errors.New("this service can only deploy a branch, not a tag")
-	ErrBadRef       = errors.New("branch/tag is required")
-	ErrNotBooked    = errors.New("you must hold an active booking for this slot to deploy")
-	ErrBookedOther  = errors.New("slot is currently booked by another user")
+	ErrDisabled    = errors.New("deploy feature is not enabled")
+	ErrUnknownSvc  = errors.New("unknown service")
+	ErrTagNotAllow = errors.New("this service can only deploy a branch, not a tag")
+	ErrBadRef      = errors.New("branch/tag is required")
+	ErrNotBooked   = errors.New("you must hold an active booking for this slot to deploy")
+	ErrBookedOther = errors.New("slot is currently booked by another user")
 )
 
 // Start validates the request, acquires the slot lock, triggers Jenkins, and

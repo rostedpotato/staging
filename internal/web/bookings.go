@@ -62,7 +62,7 @@ func (s *Server) handleBookingCreate(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	slot := r.FormValue("slot")
 	purpose := r.FormValue("purpose")
-	start, end, err := parseDateRange(r.FormValue("startDate"), r.FormValue("endDate"))
+	start, end, err := parseBookingDate(r.FormValue("date"))
 	if err != nil {
 		redirectBookings(w, r, "", err.Error())
 		return
@@ -120,33 +120,20 @@ func (s *Server) handleBookingRelease(w http.ResponseWriter, r *http.Request) {
 	redirectBookings(w, r, "Released booking for "+res.Slot+".", "")
 }
 
-// parseDateRange reads two date values (YYYY-MM-DD, no time) as whole-day
-// bookings in local time: start = 00:00:00 of startDate, end = 23:59:59 of
-// endDate. A single-day booking has startDate == endDate. If endDate is blank
-// it defaults to startDate (book just that one day).
-func parseDateRange(startStr, endStr string) (time.Time, time.Time, error) {
-	if startStr == "" {
+// parseBookingDate reads a single date value (YYYY-MM-DD) as a whole-day
+// booking in local time: start = 00:00:00, end = 23:59:59 of that same day.
+func parseBookingDate(dateStr string) (time.Time, time.Time, error) {
+	if dateStr == "" {
 		return time.Time{}, time.Time{}, errors.New("date is required")
 	}
-	if endStr == "" {
-		endStr = startStr
-	}
 	const layout = "2006-01-02"
-	sd, err := time.ParseInLocation(layout, startStr, bookingLoc)
+	d, err := time.ParseInLocation(layout, dateStr, bookingLoc)
 	if err != nil {
-		return time.Time{}, time.Time{}, errors.New("invalid start date")
+		return time.Time{}, time.Time{}, errors.New("invalid date")
 	}
-	ed, err := time.ParseInLocation(layout, endStr, bookingLoc)
-	if err != nil {
-		return time.Time{}, time.Time{}, errors.New("invalid end date")
-	}
-	// Whole-day span: 00:00:00 of start .. 23:59:59 of end.
-	start := sd
-	end := ed.Add(24*time.Hour - time.Second)
-	if end.Before(start) {
-		return time.Time{}, time.Time{}, errors.New("end date must not be before start date")
-	}
-	// Reject a booking whose whole span is already in the past (yesterday).
+	start := d
+	end := d.Add(24*time.Hour - time.Second)
+	// Reject a booking whose whole day is already in the past (yesterday).
 	if end.Before(time.Now()) {
 		return time.Time{}, time.Time{}, errors.New("that date is already in the past")
 	}

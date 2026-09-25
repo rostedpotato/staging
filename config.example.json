@@ -8,7 +8,7 @@
     "nginxSitesDir": "/etc/nginx/sites-enabled",
     "dockerBin": "docker",
     "services": ["watersheep", "fisherman"],
-    "refreshSeconds": 15
+    "refreshSeconds": 300
   },
   "auth": {
     "sessionTTLHours": 12,

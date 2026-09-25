@@ -2,14 +2,14 @@ package discovery
 
 // Service is one deployable component (e.g. watersheep/fisherman) in a slot.
 type Service struct {
-	Name        string // logical name, e.g. "watersheep"
-	Container   string // actual container name, e.g. "watersheep-development-09"
-	Image       string
-	State       string // docker state: running, exited, ...
-	Health      string // healthy, unhealthy, starting, none
-	Status      string // human status line from docker, e.g. "Up 2 hours"
-	HostPort    string // first published host port, if any
-	Found       bool   // whether a matching container was found
+	Name      string // logical name, e.g. "watersheep"
+	Container string // actual container name, e.g. "watersheep-development-09"
+	Image     string
+	State     string // docker state: running, exited, ...
+	Health    string // healthy, unhealthy, starting, none
+	Status    string // human status line from docker, e.g. "Up 2 hours"
+	HostPort  string // first published host port, if any
+	Found     bool   // whether a matching container was found
 }
 
 // Slot is one parallel staging environment (agent-<name>).

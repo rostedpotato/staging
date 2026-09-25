@@ -19,7 +19,7 @@
 <main>
   <section class="panel">
     <h2>Book a slot</h2>
-    <p class="hint">Bookings are per day. Leave "Until" empty to book a single day.</p>
+    <p class="hint">Bookings are for one day.</p>
     <form method="post" action="/bookings/create" class="bookform">
       <label>Slot
         <select name="slot" required>
@@ -27,8 +27,7 @@
           {{range .Slots}}<option value="{{.}}">{{.}}</option>{{end}}
         </select>
       </label>
-      <label>From (date) <input type="date" name="startDate" required></label>
-      <label>Until (date, optional) <input type="date" name="endDate"></label>
+      <label>Date <input type="date" name="date" required></label>
       <label class="wide">Purpose <input type="text" name="purpose" placeholder="e.g. Payment QA" maxlength="200"></label>
       <button type="submit" class="btn">Book</button>
     </form>
