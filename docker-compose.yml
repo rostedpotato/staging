@@ -23,7 +23,10 @@ services:
       - ./config.json:/app/config.json:ro
       # Persistent SQLite DB (users, sessions, bookings, deployments, audit).
       - ./data:/app/data
-      # Read-only host inspection sources:
-      - /var/run/docker.sock:/var/run/docker.sock:ro   # docker ps / inspect
+      # Read-only host inspection sources. NOTE: docker.sock must be mounted
+      # read-write (not :ro) - connecting to it requires write access to the
+      # socket file even for read-only commands like `docker ps`; the app
+      # itself only ever calls read-only docker subcommands.
+      - /var/run/docker.sock:/var/run/docker.sock
       - /data/app:/data/app:ro                          # slot dirs + git + .env
       - /etc/nginx/sites-enabled:/etc/nginx/sites-enabled:ro  # domain mapping

@@ -4,6 +4,7 @@ package discovery
 
 import (
 	"context"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,7 +27,9 @@ func (d *Discoverer) Scan(ctx context.Context, hidden func(string) bool) ([]Slot
 	containers, err := d.listContainers(ctx)
 	if err != nil {
 		// Docker may be unreachable; still return slots from disk so the UI
-		// shows versions/domains even without container state.
+		// shows versions/domains even without container state. Log it though,
+		// since a silent failure here makes every service look "down".
+		log.Printf("discovery: docker ps failed, services will show as not found: %v", err)
 		containers = nil
 	}
 
