@@ -4,6 +4,7 @@ package discovery
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"os"
 	"path/filepath"
@@ -134,16 +135,35 @@ func (d *Discoverer) servicesFor(slot string, containers []dockerContainer) []Se
 // wboService reports on WBO (Web Backoffice), which unlike watersheep/
 // fisherman isn't a Docker container: it's the slot's frontend built to
 // <repoDir>/dist and served directly by nginx. "Found" here means the build
-// output exists on disk.
+// output exists on disk. The running version comes from dist/details.json
+// (written by the frontend build), e.g. {"version": "v1.18.1-b9f5776d", ...} -
+// this is WBO's equivalent of the other services' /actuator/info version.
 func wboService(repoDir string) Service {
 	svc := Service{Name: "wbo", Container: "(static: nginx dist)"}
-	if st, err := os.Stat(filepath.Join(repoDir, "dist", "index.html")); err == nil && !st.IsDir() {
+	distDir := filepath.Join(repoDir, "dist")
+	if st, err := os.Stat(filepath.Join(distDir, "index.html")); err == nil && !st.IsDir() {
 		svc.Found = true
 		svc.State = "running"
 		svc.Status = "built, served by nginx"
+		svc.RunningVersion = wboDistVersion(distDir)
 	} else {
 		svc.State = "missing"
 		svc.Status = "dist/index.html not found"
 	}
 	return svc
+}
+
+// wboDistVersion reads the "version" field out of dist/details.json.
+func wboDistVersion(distDir string) string {
+	data, err := os.ReadFile(filepath.Join(distDir, "details.json"))
+	if err != nil {
+		return ""
+	}
+	var body struct {
+		Version string `json:"version"`
+	}
+	if err := json.Unmarshal(data, &body); err != nil {
+		return ""
+	}
+	return body.Version
 }
