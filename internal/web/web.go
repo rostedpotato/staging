@@ -263,7 +263,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		data.Username = u.Username
 		data.IsAdmin = u.IsAdmin()
 	}
-	if err != nil {
+	// Only surface a scan error when we have nothing to show. A transient
+	// failure (e.g. `docker ps` timing out on a busy host) while cached data
+	// is still displayed shouldn't alarm the user - the shown data is fine.
+	if err != nil && len(views) == 0 {
 		data.Error = err.Error()
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

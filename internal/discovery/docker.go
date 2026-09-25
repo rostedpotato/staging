@@ -26,8 +26,10 @@ func (d *Discoverer) listContainers(ctx context.Context) ([]dockerContainer, err
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	// No --no-trunc: we only read Names/Image/State/Status/Ports, and dropping
+	// it keeps the output (and time) down on a busy host with ~40 containers.
 	out, err := exec.CommandContext(ctx, d.cfg.DockerBin, "ps", "-a",
-		"--no-trunc", "--format", "{{json .}}").Output()
+		"--format", "{{json .}}").Output()
 	if err != nil {
 		return nil, err
 	}
