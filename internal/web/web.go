@@ -24,7 +24,7 @@ import (
 // subprocesses per slot) discovery scan actually runs. Dashboard freshness
 // isn't critical here (this isn't a monitoring tool), so a coarse cache
 // keeps repeated page loads/clicks cheap.
-const scanCacheTTL = time.Minute
+const scanCacheTTL = 5 * time.Minute
 
 //go:embed templates/*.html
 var templatesFS embed.FS
