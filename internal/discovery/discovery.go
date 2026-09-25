@@ -43,6 +43,9 @@ func (d *Discoverer) Scan(ctx context.Context, hidden func(string) bool) ([]Slot
 
 		branch, commit, commitTime, version := gitInfo(ctx, repoDir)
 
+		services := d.servicesFor(name, containers)
+		services = append(services, wboService(repoDir))
+
 		slot := Slot{
 			Name:       name,
 			Dir:        dir,
@@ -51,7 +54,7 @@ func (d *Discoverer) Scan(ctx context.Context, hidden func(string) bool) ([]Slot
 			Commit:     commit,
 			Version:    version,
 			CommitTime: commitTime,
-			Services:   d.servicesFor(name, containers),
+			Services:   services,
 		}
 		slots = append(slots, slot)
 	}
@@ -103,4 +106,21 @@ func (d *Discoverer) servicesFor(slot string, containers []dockerContainer) []Se
 		out = append(out, svc)
 	}
 	return out
+}
+
+// wboService reports on WBO (Web Backoffice), which unlike watersheep/
+// fisherman isn't a Docker container: it's the slot's frontend built to
+// <repoDir>/dist and served directly by nginx. "Found" here means the build
+// output exists on disk.
+func wboService(repoDir string) Service {
+	svc := Service{Name: "wbo", Container: "(static: nginx dist)"}
+	if st, err := os.Stat(filepath.Join(repoDir, "dist", "index.html")); err == nil && !st.IsDir() {
+		svc.Found = true
+		svc.State = "running"
+		svc.Status = "built, served by nginx"
+	} else {
+		svc.State = "missing"
+		svc.Status = "dist/index.html not found"
+	}
+	return svc
 }
