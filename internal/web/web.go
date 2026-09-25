@@ -174,17 +174,19 @@ func (s *Server) StartBackgroundScan(ctx context.Context) {
 	}()
 }
 
-// refreshScan runs discovery and updates the cache. On error, the previous
-// good result is kept (only rawErr changes) since a transient failure (e.g.
-// `docker ps` timing out on a busy host) shouldn't blank out data that was
-// fine a moment ago.
+// refreshScan runs discovery and updates the cache. A scan can return slots
+// AND an error at once: the slot list comes from disk (always cheap/reliable)
+// while the error usually means only `docker ps` failed (container state is
+// stale). So we keep any slots we got - even partial data (names, git info,
+// domains) beats a blank dashboard - and only fall back to the previous cache
+// when this scan produced nothing at all.
 func (s *Server) refreshScan(ctx context.Context) {
 	slots, err := s.disc.Scan(ctx, nil)
 	s.rawScanMu.Lock()
 	defer s.rawScanMu.Unlock()
 	s.rawErr = err
 	s.rawScanAt = time.Now()
-	if err == nil {
+	if len(slots) > 0 {
 		s.rawSlots = slots
 	}
 }

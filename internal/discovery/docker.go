@@ -21,9 +21,10 @@ type dockerContainer struct {
 // returns all containers. Each line of output is a JSON object.
 func (d *Discoverer) listContainers(ctx context.Context) ([]dockerContainer, error) {
 	// The staging host runs ~40 containers under heavy load, so `docker ps`
-	// can take well over 10s; a short timeout here made every scan fail and
-	// every slot show as down.
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	// can take a long time. This runs in a background goroutine off the
+	// request path, so a generous timeout costs users nothing and just makes
+	// container state more likely to come through during load spikes.
+	ctx, cancel := context.WithTimeout(ctx, 60*time.Second)
 	defer cancel()
 
 	// No --no-trunc: we only read Names/Image/State/Status/Ports, and dropping
