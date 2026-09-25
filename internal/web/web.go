@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"html/template"
 	"io/fs"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -117,7 +118,24 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/", s.auth.RequireUser(http.HandlerFunc(s.handleDashboard)))
 
 	// LoadUser wraps everything so handlers can read the current user.
-	return s.auth.LoadUser(mux)
+	// recoverPanic is the outermost layer so a panic in any single request
+	// never takes the whole server (and thus every other user) down.
+	return recoverPanic(s.auth.LoadUser(mux))
+}
+
+// recoverPanic turns a panic in any handler into a 500 for that one request
+// instead of crashing the process, so one bad request can't take the server
+// down for everyone.
+func recoverPanic(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer func() {
+			if rec := recover(); rec != nil {
+				log.Printf("panic in %s %s: %v", r.Method, r.URL.Path, rec)
+				http.Error(w, "internal server error", http.StatusInternalServerError)
+			}
+		}()
+		next.ServeHTTP(w, r)
+	})
 }
 
 type pageData struct {

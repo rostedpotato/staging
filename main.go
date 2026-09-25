@@ -66,9 +66,14 @@ func main() {
 	srv.StartBackgroundScan(scanCtx)
 
 	httpSrv := &http.Server{
-		Addr:              cfg.Listen,
-		Handler:           srv.Handler(),
+		Addr:    cfg.Listen,
+		Handler: srv.Handler(),
+		// Guard against slow/hung clients piling up connections. No global
+		// WriteTimeout: the deploy log SSE stream is intentionally long-lived
+		// and a write deadline would sever it.
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       120 * time.Second,
 	}
 
 	go func() {
