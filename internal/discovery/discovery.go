@@ -57,7 +57,7 @@ func (d *Discoverer) Scan(ctx context.Context, hidden func(string) bool) ([]Slot
 	}
 
 	sort.Slice(slots, func(i, j int) bool { return slots[i].Name < slots[j].Name })
-	return slots, nil
+	return slots, err
 }
 
 // slotDirs lists slot names by reading <appRoot>/<slotPrefix>* directories.

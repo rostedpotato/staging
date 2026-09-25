@@ -59,6 +59,12 @@ func main() {
 		log.Fatalf("web: %v", err)
 	}
 
+	// Discovery runs on its own background schedule instead of per-request,
+	// so a slow docker/git scan on a busy host never blocks a page load.
+	scanCtx, stopScan := context.WithCancel(context.Background())
+	defer stopScan()
+	srv.StartBackgroundScan(scanCtx)
+
 	httpSrv := &http.Server{
 		Addr:              cfg.Listen,
 		Handler:           srv.Handler(),

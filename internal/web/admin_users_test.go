@@ -1,6 +1,7 @@
 package web
 
 import (
+	"context"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -51,6 +52,7 @@ func newTestServer(t *testing.T, slots ...string) (*httptest.Server, *store.Stor
 	if err != nil {
 		t.Fatal(err)
 	}
+	srv.refreshScan(context.Background()) // populate the scan cache synchronously for tests
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, st

@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"errors"
 	"net/http"
 	"net/url"
@@ -27,8 +26,8 @@ type bookingsPage struct {
 	Notice   string
 }
 
-func (s *Server) slotNames(ctx context.Context) []string {
-	slots, _ := s.scan(ctx)
+func (s *Server) slotNames() []string {
+	slots, _ := s.scan()
 	names := make([]string, 0, len(slots))
 	for _, sl := range slots {
 		names = append(names, sl.Name)
@@ -37,8 +36,6 @@ func (s *Server) slotNames(ctx context.Context) []string {
 }
 
 func (s *Server) handleBookings(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
-	defer cancel()
 	u := auth.UserFrom(r.Context())
 
 	active, _ := s.st.ListActive()
@@ -46,7 +43,7 @@ func (s *Server) handleBookings(w http.ResponseWriter, r *http.Request) {
 	s.renderBookings(w, bookingsPage{
 		Username: u.Username,
 		IsAdmin:  u.IsAdmin(),
-		Slots:    s.slotNames(ctx),
+		Slots:    s.slotNames(),
 		Active:   active,
 		Mine:     mine,
 		Notice:   r.URL.Query().Get("notice"),

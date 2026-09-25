@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"net/http"
@@ -27,15 +26,13 @@ type deployPage struct {
 }
 
 func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
-	defer cancel()
 	u := auth.UserFrom(r.Context())
 	recent, _ := s.st.ListDeployments("", 20)
 	s.render(w, "deploy.html", deployPage{
 		Username: u.Username,
 		IsAdmin:  u.IsAdmin(),
 		Enabled:  s.cfg.Deploy.Enabled,
-		Slots:    s.slotNames(ctx),
+		Slots:    s.slotNames(),
 		Services: s.cfg.Deploy.Services,
 		Recent:   recent,
 		Notice:   r.URL.Query().Get("notice"),

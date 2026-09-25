@@ -39,10 +39,13 @@ type Server struct {
 	deploy *deploy.Service
 	tmpl   *template.Template
 
-	// rawScanMu guards the cached, unfiltered discovery result. Hidden-slot
-	// filtering is applied fresh on every call (cheap, DB-only) so admin
-	// show/hide toggles take effect immediately despite the scan cache.
-	rawScanMu sync.Mutex
+	// rawScanMu guards the cached, unfiltered discovery result. It's kept
+	// fresh by a background goroutine (see refreshLoop) rather than by
+	// request handlers, so a slow docker/git scan never makes a user wait on
+	// a page click. A failed scan keeps the last good result instead of
+	// replacing it with empty/broken data - rawErr is only surfaced as a
+	// warning banner.
+	rawScanMu sync.RWMutex
 	rawScanAt time.Time
 	rawSlots  []discovery.Slot
 	rawErr    error
@@ -132,28 +135,62 @@ type slotView struct {
 	Booking *store.Reservation
 }
 
-// rawScan runs (or returns the cached result of) an unfiltered discovery
-// scan. Cached for scanCacheTTL since discovery shells out to docker/git for
-// every slot on every call, which is too costly to redo on each
-// request/click; this isn't a monitoring tool so slightly stale
-// versions/container state is fine.
-func (s *Server) rawScan(ctx context.Context) ([]discovery.Slot, error) {
+// StartBackgroundScan runs an initial discovery scan synchronously (so the
+// first page load has data) and then refreshes it every scanCacheTTL in a
+// background goroutine until ctx is cancelled. Request handlers only ever
+// read the cached result (see rawScan), so a slow docker/git scan on a busy
+// host never blocks a user's click.
+func (s *Server) StartBackgroundScan(ctx context.Context) {
+	s.refreshScan(ctx)
+	go func() {
+		t := time.NewTicker(scanCacheTTL)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				s.refreshScan(ctx)
+			}
+		}
+	}()
+}
+
+// refreshScan runs discovery and updates the cache. On error, the previous
+// good result is kept (only rawErr changes) since a transient failure (e.g.
+// `docker ps` timing out on a busy host) shouldn't blank out data that was
+// fine a moment ago.
+func (s *Server) refreshScan(ctx context.Context) {
+	slots, err := s.disc.Scan(ctx, nil)
 	s.rawScanMu.Lock()
 	defer s.rawScanMu.Unlock()
-	if time.Since(s.rawScanAt) < scanCacheTTL {
-		return s.rawSlots, s.rawErr
-	}
-	s.rawSlots, s.rawErr = s.disc.Scan(ctx, nil)
+	s.rawErr = err
 	s.rawScanAt = time.Now()
+	if err == nil {
+		s.rawSlots = slots
+	}
+}
+
+// rawScan returns the last cached, unfiltered discovery result.
+func (s *Server) rawScan() ([]discovery.Slot, error) {
+	s.rawScanMu.RLock()
+	defer s.rawScanMu.RUnlock()
 	return s.rawSlots, s.rawErr
+}
+
+// lastScanAt returns when the cache was last refreshed.
+func (s *Server) lastScanAt() time.Time {
+	s.rawScanMu.RLock()
+	defer s.rawScanMu.RUnlock()
+	return s.rawScanAt
 }
 
 // scan lists slots, hiding those hidden by config OR by the in-app admin
 // setting. The hidden-slot filter itself is always applied fresh (cheap,
 // DB-backed) on top of the cached raw scan so admin show/hide toggles are
 // reflected immediately.
-func (s *Server) scan(ctx context.Context) ([]discovery.Slot, error) {
-	slots, err := s.rawScan(ctx)
+func (s *Server) scan() ([]discovery.Slot, error) {
+	slots, err := s.rawScan()
 	dbHidden, _ := s.st.HiddenSlots()
 	visible := make([]discovery.Slot, 0, len(slots))
 	for _, sl := range slots {
@@ -166,8 +203,8 @@ func (s *Server) scan(ctx context.Context) ([]discovery.Slot, error) {
 }
 
 // allSlotNames returns every discovered slot (including hidden), for admin UI.
-func (s *Server) allSlotNames(ctx context.Context) []string {
-	slots, _ := s.rawScan(ctx)
+func (s *Server) allSlotNames() []string {
+	slots, _ := s.rawScan()
 	names := make([]string, 0, len(slots))
 	for _, sl := range slots {
 		names = append(names, sl.Name)
@@ -180,11 +217,8 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
-	defer cancel()
-
 	u := auth.UserFrom(r.Context())
-	slots, err := s.scan(ctx)
+	slots, err := s.scan()
 
 	// Attach the current active booking per slot for the "who's using it" view.
 	active, _ := s.st.ListActive()
@@ -204,7 +238,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	data := pageData{
 		Slots:          views,
-		ScannedAt:      time.Now().Format("2006-01-02 15:04:05"),
+		ScannedAt:      s.lastScanAt().Local().Format("2006-01-02 15:04:05"),
 		RefreshSeconds: s.cfg.Discovery.RefreshSeconds,
 	}
 	if u != nil {
@@ -245,16 +279,13 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPISlots(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
-	defer cancel()
-
-	slots, err := s.scan(ctx)
+	slots, err := s.scan()
 	w.Header().Set("Content-Type", "application/json")
 	if err != nil {
 		w.WriteHeader(http.StatusOK) // partial data is still useful
 	}
 	json.NewEncoder(w).Encode(map[string]any{
-		"scannedAt": time.Now().Format(time.RFC3339),
+		"scannedAt": s.lastScanAt().Format(time.RFC3339),
 		"slots":     slots,
 		"error":     errStr(err),
 	})

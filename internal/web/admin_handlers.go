@@ -1,12 +1,10 @@
 package web
 
 import (
-	"context"
 	"net/http"
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	"parkee/staging-platform/internal/auth"
 	"parkee/staging-platform/internal/store"
@@ -197,12 +195,10 @@ type adminSlotsPage struct {
 }
 
 func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
-	defer cancel()
 	u := auth.UserFrom(r.Context())
 	hidden, _ := s.st.HiddenSlots()
 	var rows []slotRow
-	for _, name := range s.allSlotNames(ctx) {
+	for _, name := range s.allSlotNames() {
 		rows = append(rows, slotRow{Name: name, Hidden: hidden[name] || s.cfg.Hidden(name)})
 	}
 	s.render(w, "admin_slots.html", adminSlotsPage{
