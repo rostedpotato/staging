@@ -10,6 +10,11 @@ type Service struct {
 	Status    string // human status line from docker, e.g. "Up 2 hours"
 	HostPort  string // first published host port, if any
 	Found     bool   // whether a matching container was found
+	// RunningVersion is the build.version reported by the service's own
+	// /actuator/info endpoint, i.e. the version actually serving traffic
+	// right now (as opposed to Slot.Commit, which is the git checkout).
+	// Empty if the service isn't running or doesn't expose the endpoint.
+	RunningVersion string
 }
 
 // Slot is one parallel staging environment (agent-<name>).

@@ -18,6 +18,10 @@ services:
       timeout: 3s
       retries: 3
       start_period: 5s
+    # host.docker.internal isn't automatic on Linux hosts; needed to reach
+    # watersheep/fisherman's published ports for the /actuator/info version check.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # Config (create config.json from config.example.json).
       - ./config.json:/app/config.json:ro

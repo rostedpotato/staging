@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 
 	"parkee/staging-platform/internal/config"
 )
@@ -60,7 +61,29 @@ func (d *Discoverer) Scan(ctx context.Context, hidden func(string) bool) ([]Slot
 	}
 
 	sort.Slice(slots, func(i, j int) bool { return slots[i].Name < slots[j].Name })
+	fetchRunningVersions(ctx, slots)
 	return slots, err
+}
+
+// fetchRunningVersions hits /actuator/info on every running service across
+// all slots, concurrently, so this doesn't add up to N*services sequential
+// HTTP round-trips on a scan that already runs in the background.
+func fetchRunningVersions(ctx context.Context, slots []Slot) {
+	var wg sync.WaitGroup
+	for i := range slots {
+		for j := range slots[i].Services {
+			svc := &slots[i].Services[j]
+			if !svc.Found || svc.HostPort == "" {
+				continue
+			}
+			wg.Add(1)
+			go func(svc *Service) {
+				defer wg.Done()
+				svc.RunningVersion = runtimeVersion(ctx, svc.HostPort)
+			}(svc)
+		}
+	}
+	wg.Wait()
 }
 
 // slotDirs lists slot names by reading <appRoot>/<slotPrefix>* directories.

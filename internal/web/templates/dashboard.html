@@ -46,6 +46,7 @@
             <span class="svc-name">{{.Name}}</span>
             <span class="svc-status">
               {{if .Found}}{{.Status}}{{if .HostPort}} · :{{.HostPort}}{{end}}{{else}}not found{{end}}
+              {{if .RunningVersion}} · running <code>{{.RunningVersion}}</code>{{end}}
             </span>
           </div>
         {{end}}
