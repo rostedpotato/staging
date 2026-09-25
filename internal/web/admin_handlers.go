@@ -197,7 +197,7 @@ type adminSlotsPage struct {
 }
 
 func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
 	defer cancel()
 	u := auth.UserFrom(r.Context())
 	hidden, _ := s.st.HiddenSlots()

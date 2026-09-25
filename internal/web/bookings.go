@@ -37,7 +37,7 @@ func (s *Server) slotNames(ctx context.Context) []string {
 }
 
 func (s *Server) handleBookings(w http.ResponseWriter, r *http.Request) {
-	ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
+	ctx, cancel := context.WithTimeout(r.Context(), 35*time.Second)
 	defer cancel()
 	u := auth.UserFrom(r.Context())
 

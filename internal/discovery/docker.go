@@ -20,7 +20,10 @@ type dockerContainer struct {
 // listContainers runs `docker ps -a --format '{{json .}}'` (read-only) and
 // returns all containers. Each line of output is a JSON object.
 func (d *Discoverer) listContainers(ctx context.Context) ([]dockerContainer, error) {
-	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	// The staging host runs ~40 containers under heavy load, so `docker ps`
+	// can take well over 10s; a short timeout here made every scan fail and
+	// every slot show as down.
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
 	out, err := exec.CommandContext(ctx, d.cfg.DockerBin, "ps", "-a",
