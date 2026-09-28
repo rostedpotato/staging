@@ -113,6 +113,9 @@ input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1) bright
 /* dashboard booking-history table */
 .bookinghistory { margin-top: 8px; }
 
+/* deployment history filter/sort controls */
+.filterform { margin-bottom: 14px; }
+
 /* deployment status tags + console */
 .tag.st-queued { background: #23324a; color: #a9c7ff; }
 .tag.st-running { background: #3a3320; color: #ffd479; }

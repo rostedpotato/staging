@@ -27,7 +27,7 @@ type deployPage struct {
 
 func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
-	recent, _ := s.st.ListDeployments("", 20)
+	recent, _ := s.st.ListDeployments("", "date_desc", 20)
 	s.render(w, "deploy.html", deployPage{
 		Username: u.Username,
 		IsAdmin:  u.IsAdmin(),
@@ -101,13 +101,19 @@ func (s *Server) handleDeployRollback(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeployHistory(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	slot := r.URL.Query().Get("slot")
-	deps, _ := s.st.ListDeployments(slot, 100)
+	sortKey := r.URL.Query().Get("sort")
+	if sortKey == "" {
+		sortKey = "date_desc"
+	}
+	deps, _ := s.st.ListDeployments(slot, sortKey, 100)
 	s.render(w, "deployments.html", struct {
 		Username    string
 		IsAdmin     bool
 		Deployments []store.Deployment
 		Slot        string
-	}{u.Username, u.IsAdmin(), deps, slot})
+		Sort        string
+		Slots       []string
+	}{u.Username, u.IsAdmin(), deps, slot, sortKey, s.slotNames()})
 }
 
 func (s *Server) handleDeployDetail(w http.ResponseWriter, r *http.Request) {

@@ -76,17 +76,31 @@ func (s *Store) DeploymentByID(id int64) (*Deployment, error) {
 	return scanDep(row)
 }
 
-// ListDeployments returns recent deployments, optionally filtered by slot.
-func (s *Store) ListDeployments(slot string, limit int) ([]Deployment, error) {
+// deploySortColumns maps a sort key from the UI to a safe SQL ORDER BY
+// clause. Only whitelisted values are ever interpolated into the query.
+var deploySortColumns = map[string]string{
+	"date_desc": "id DESC",
+	"date_asc":  "id ASC",
+	"slot_asc":  "slot ASC, id DESC",
+	"slot_desc": "slot DESC, id DESC",
+}
+
+// ListDeployments returns recent deployments, optionally filtered by slot and
+// sorted by sortKey (see deploySortColumns; defaults to date_desc).
+func (s *Store) ListDeployments(slot, sortKey string, limit int) ([]Deployment, error) {
 	if limit <= 0 {
 		limit = 50
+	}
+	orderBy, ok := deploySortColumns[sortKey]
+	if !ok {
+		orderBy = deploySortColumns["date_desc"]
 	}
 	var rows *sql.Rows
 	var err error
 	if slot == "" {
-		rows, err = s.db.Query(depSelect+` ORDER BY id DESC LIMIT ?`, limit)
+		rows, err = s.db.Query(depSelect+` ORDER BY `+orderBy+` LIMIT ?`, limit)
 	} else {
-		rows, err = s.db.Query(depSelect+` WHERE slot = ? ORDER BY id DESC LIMIT ?`, slot, limit)
+		rows, err = s.db.Query(depSelect+` WHERE slot = ? ORDER BY `+orderBy+` LIMIT ?`, slot, limit)
 	}
 	if err != nil {
 		return nil, err

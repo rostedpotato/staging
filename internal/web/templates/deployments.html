@@ -15,6 +15,24 @@
 </header>
 <main>
   <section class="panel">
+    <form method="get" action="/deployments" class="bookform filterform">
+      <label>Env
+        <select name="slot" onchange="this.form.submit()">
+          <option value="">All envs</option>
+          {{$cur := .Slot}}
+          {{range .Slots}}<option value="{{.}}" {{if eq . $cur}}selected{{end}}>{{.}}</option>{{end}}
+        </select>
+      </label>
+      <label>Sort by
+        <select name="sort" onchange="this.form.submit()">
+          <option value="date_desc" {{if eq .Sort "date_desc"}}selected{{end}}>Date (newest first)</option>
+          <option value="date_asc" {{if eq .Sort "date_asc"}}selected{{end}}>Date (oldest first)</option>
+          <option value="slot_asc" {{if eq .Sort "slot_asc"}}selected{{end}}>Env (A–Z)</option>
+          <option value="slot_desc" {{if eq .Sort "slot_desc"}}selected{{end}}>Env (Z–A)</option>
+        </select>
+      </label>
+      <noscript><button type="submit" class="btn small">Apply</button></noscript>
+    </form>
     {{template "deploytable" .Deployments}}
   </section>
 </main>

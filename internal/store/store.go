@@ -39,7 +39,30 @@ func Open(path string) (*Store, error) {
 	if _, err := db.Exec(schema); err != nil {
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
-	return &Store{db: db}, nil
+	st := &Store{db: db}
+	if err := st.fixLegacyUTCBookings(); err != nil {
+		return nil, fmt.Errorf("fix legacy UTC bookings: %w", err)
+	}
+	return st, nil
+}
+
+// fixLegacyUTCBookings repairs reservations created before the container had
+// TZ=Asia/Jakarta set, when time.Local resolved to UTC. Whole-day bookings
+// from that era were stored as 00:00:00Z..23:59:59Z instead of the intended
+// 17:00:00Z (prev day)..16:59:59Z window for WIB midnight-to-midnight, which
+// then displayed 7h into the next day (e.g. "until 06:59") once local time
+// started rendering correctly. That exact pattern (:00 second-of-day start,
+// 23:59:59 end) can never occur for a WIB whole-day booking, so matching on
+// it is safe, precise, and naturally idempotent - once corrected, rows no
+// longer match and won't be touched again.
+func (s *Store) fixLegacyUTCBookings() error {
+	_, err := s.db.Exec(`
+		UPDATE reservations
+		SET start_time = strftime('%Y-%m-%dT%H:%M:%SZ', start_time, '-7 hours'),
+		    end_time   = strftime('%Y-%m-%dT%H:%M:%SZ', end_time, '-7 hours')
+		WHERE substr(start_time, 12, 8) = '00:00:00'
+		  AND substr(end_time, 12, 8) = '23:59:59'`)
+	return err
 }
 
 func (s *Store) Close() error { return s.db.Close() }
