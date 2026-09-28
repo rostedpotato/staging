@@ -227,6 +227,21 @@ seperti watersheep/fisherman. Direpresentasikan sebagai `Service` semu
   condition, bukan lock aplikasi.
 - Discovery scan sepenuhnya lepas dari request path (§4.1) — beban N user
   klik dashboard bersamaan = N kali baca cache in-memory, bukan N kali scan.
+- **CPU cgroup quota vs GOMAXPROCS** (`docker-compose.yml`): container
+  dibatasi `cpus`, tapi Go runtime di dalamnya tidak otomatis tahu soal
+  quota itu — `GOMAXPROCS` default mengikuti jumlah core **host** (mis. 12),
+  bukan jatah cgroup. Begitu lebih dari satu goroutine perlu jalan
+  bersamaan (scan tick background, watcher goroutine deploy yang polling
+  Jenkins, SSE log stream, request HTTP baru), kernel CFS quota
+  men-throttle seluruh proses sampai periode berikutnya. Gejalanya:
+  navigasi antar halaman sesekali "ngehang" beberapa ratus ms–beberapa
+  detik secara **acak**, tidak bisa direplikasi dengan sengaja (karena
+  tergantung timing goroutine background lain), dan terasa seperti
+  "menunggu scan" padahal scan sudah lepas dari request path. Bukan bug
+  logic — ini murni resource-limit. Mitigasi: set `GOMAXPROCS=1` (biar Go
+  scheduler tidak coba pakai lebih dari 1 core sekaligus) + longgarkan
+  `cpus` kalau host punya ruang. Kalau isu serupa muncul lagi meski sudah
+  di-set, coba naikkan `cpus` lebih lanjut sebelum curiga ke kode.
 
 ## 6. Konfigurasi (`config.json`)
 

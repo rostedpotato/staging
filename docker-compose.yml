@@ -9,9 +9,20 @@ services:
     restart: unless-stopped
     ports:
       - "8088:8088"
-    # Keep it light on an already-busy host.
+    # Keep it light on an already-busy host. NOTE: the Go runtime inside the
+    # container doesn't know about this cgroup quota (GOMAXPROCS defaults to
+    # the host's full CPU count, e.g. 12). Whenever more than one goroutine
+    # needs to run at once (background scan tick, a deploy's watcher
+    # goroutine polling Jenkins, an SSE log stream, an incoming HTTP request),
+    # the kernel CFS quota throttles the whole process until the next period -
+    # this is what caused the occasional, unreproducible "stuck navigation"
+    # (nothing is actually blocking in the app logic). cpus raised 0.5 -> 1.0
+    # to give the scheduler real headroom, plus GOMAXPROCS=1 so Go itself
+    # never tries to run more than the quota allows at once.
     mem_limit: 192m
-    cpus: 0.5
+    cpus: 1.0
+    environment:
+      - GOMAXPROCS=1
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8088/healthz"]
       interval: 30s
