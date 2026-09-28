@@ -145,6 +145,7 @@ type pageData struct {
 	Error          string
 	Username       string
 	IsAdmin        bool
+	BookingHistory []store.Reservation
 }
 
 // slotView pairs a discovered slot with its current active booking (if any).
@@ -256,10 +257,15 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		views = append(views, slotView{Slot: sl, Booking: current[sl.Name]})
 	}
 
+	// Rolling 7-days-back .. 7-days-forward booking history, with exact
+	// times (a booking can be released before its whole-day window ends).
+	history, _ := s.st.ListHistory(now.AddDate(0, 0, -7), now.AddDate(0, 0, 7))
+
 	data := pageData{
 		Slots:          views,
 		ScannedAt:      s.lastScanAt().Local().Format("2006-01-02 15:04:05"),
 		RefreshSeconds: s.cfg.Discovery.RefreshSeconds,
+		BookingHistory: history,
 	}
 	if u != nil {
 		data.Username = u.Username

@@ -21,23 +21,23 @@
   <section class="panel">
     <h2>Trigger a deployment</h2>
     <form method="post" action="/deploy/start" class="bookform" id="deployForm">
-      <label>Service
+      <label>Service <span class="required-mark">*</span>
         <select name="service" id="deployService" required>
           <option value="" disabled selected>choose…</option>
           {{range .Services}}<option value="{{.Key}}" data-tag="{{if .TagParam}}1{{else}}0{{end}}">{{.Label}} ({{.Job}})</option>{{end}}
         </select>
       </label>
-      <label>Slot
+      <label>Slot <span class="required-mark">*</span>
         <select name="slot" required>
           <option value="" disabled selected>choose…</option>
           {{range .Slots}}<option value="{{.}}">{{.}}</option>{{end}}
         </select>
       </label>
-      <label>Branch <input type="text" name="branch" id="deployBranch" placeholder="e.g. master"></label>
-      <label>Tag <input type="text" name="tag" id="deployTag" placeholder="e.g. v2.4.1"></label>
+      <label>Branch <span class="required-mark" title="Provide branch OR tag">*</span> <input type="text" name="branch" id="deployBranch" placeholder="e.g. master"></label>
+      <label>Tag <span class="required-mark" title="Provide branch OR tag">*</span> <input type="text" name="tag" id="deployTag" placeholder="e.g. v2.4.1"></label>
       <button type="submit" class="btn" {{if not .Enabled}}disabled{{end}}>Deploy</button>
     </form>
-    <p class="hint">Provide EITHER branch OR tag (not both). Web Backoffice supports branch only.</p>
+    <p class="hint">Fields marked <span class="required-mark">*</span> are required. Provide EITHER branch OR tag (not both). Web Backoffice supports branch only.</p>
   </section>
 
   <script>

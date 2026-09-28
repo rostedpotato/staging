@@ -19,15 +19,15 @@
 <main>
   <section class="panel">
     <h2>Book a slot</h2>
-    <p class="hint">Bookings are for one day.</p>
+    <p class="hint">Bookings are for one day. Fields marked <span class="required-mark">*</span> are required.</p>
     <form method="post" action="/bookings/create" class="bookform">
-      <label>Slot
+      <label>Slot <span class="required-mark">*</span>
         <select name="slot" required>
           <option value="" disabled selected>choose…</option>
           {{range .Slots}}<option value="{{.}}">{{.}}</option>{{end}}
         </select>
       </label>
-      <label>Date <input type="date" name="date" required></label>
+      <label>Date <span class="required-mark">*</span> <input type="date" name="date" required></label>
       <label class="wide">Purpose <input type="text" name="purpose" placeholder="e.g. Payment QA" maxlength="200"></label>
       <button type="submit" class="btn">Book</button>
     </form>
@@ -42,8 +42,8 @@
           <tr>
             <td><b>{{.Slot}}</b></td>
             <td>{{.Username}}</td>
-            <td>{{fmtDate .Start}}</td>
-            <td>{{fmtDate .End}}</td>
+            <td>{{fmtTime .Start}}</td>
+            <td>{{fmtTime .End}}</td>
             <td>{{.Purpose}}</td>
             <td>
               {{if or (eq .Username $.Username) $.IsAdmin}}
@@ -71,8 +71,8 @@
         {{range .Mine}}
           <tr>
             <td>{{.Slot}}</td>
-            <td>{{fmtDate .Start}}</td>
-            <td>{{fmtDate .End}}</td>
+            <td>{{fmtTime .Start}}</td>
+            <td>{{if .ReleasedAt}}{{fmtTime .ReleasedAt}}{{else}}{{fmtTime .End}}{{end}}</td>
             <td><span class="tag">{{.Status}}</span></td>
             <td>{{.Purpose}}</td>
           </tr>

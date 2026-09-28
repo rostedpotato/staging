@@ -69,6 +69,27 @@
     </section>
   {{end}}
   </div>
+
+  <section class="panel bookinghistory">
+    <h2>Booking history (7 days back &ndash; 7 days forward)</h2>
+    <table class="audit">
+      <thead><tr><th>Slot</th><th>User</th><th>From</th><th>Until</th><th>Status</th><th>Purpose</th></tr></thead>
+      <tbody>
+        {{range .BookingHistory}}
+          <tr>
+            <td><b>{{.Slot}}</b></td>
+            <td>{{.Username}}</td>
+            <td>{{fmtTime .Start}}</td>
+            <td>{{if .ReleasedAt}}{{fmtTime .ReleasedAt}}{{else}}{{fmtTime .End}}{{end}}</td>
+            <td><span class="tag">{{.Status}}</span></td>
+            <td>{{.Purpose}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="6" class="empty">No bookings in this window.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
 </main>
 
 <footer>

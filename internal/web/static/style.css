@@ -103,6 +103,16 @@ td.empty { color: var(--muted); text-align: center; padding: 20px; }
 .btn.small { width: auto; margin: 0; padding: 5px 10px; font-size: 12px; }
 .btn.danger { border-color: var(--down); color: #ffb4b4; }
 
+/* required-field marker: bright enough to be obvious on a dark background */
+.required-mark { color: #ff6b6b; font-weight: 700; }
+
+/* Native date-picker calendar icon defaults to a dark glyph that's nearly
+   invisible on this dark UI on some displays/browsers - invert it to white. */
+input[type="date"]::-webkit-calendar-picker-indicator { filter: invert(1) brightness(1.5); cursor: pointer; }
+
+/* dashboard booking-history table */
+.bookinghistory { margin-top: 8px; }
+
 /* deployment status tags + console */
 .tag.st-queued { background: #23324a; color: #a9c7ff; }
 .tag.st-running { background: #3a3320; color: #ffd479; }

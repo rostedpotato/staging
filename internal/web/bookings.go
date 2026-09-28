@@ -71,8 +71,11 @@ func (s *Server) handleBookingCreate(w http.ResponseWriter, r *http.Request) {
 
 	res, err := s.st.CreateReservation(slot, u.ID, u.Username, purpose, start, end)
 	if err != nil {
-		if errors.Is(err, store.ErrConflict) {
-			redirectBookings(w, r, "", "That slot is already booked for the selected window.")
+		var conflict *store.ConflictError
+		if errors.As(err, &conflict) {
+			redirectBookings(w, r, "", "That slot is already booked by "+conflict.Username+
+				" until "+conflict.Until.Local().Format("2006-01-02 15:04")+
+				" — reach out to them if you need it sooner.")
 			return
 		}
 		redirectBookings(w, r, "", err.Error())
