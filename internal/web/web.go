@@ -139,13 +139,16 @@ func recoverPanic(next http.Handler) http.Handler {
 }
 
 type pageData struct {
-	Slots          []slotView
-	ScannedAt      string
-	RefreshSeconds int
-	Error          string
-	Username       string
-	IsAdmin        bool
-	BookingHistory []store.Reservation
+	Slots           []slotView
+	ScannedAt       string
+	RefreshSeconds  int
+	Error           string
+	Username        string
+	IsAdmin         bool
+	BookingHistory  []store.Reservation
+	HistorySlot     string
+	HistorySort     string
+	HistorySlotOpts []string
 }
 
 // slotView pairs a discovered slot with its current active booking (if any).
@@ -259,13 +262,22 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	// Rolling 7-days-back .. 7-days-forward booking history, with exact
 	// times (a booking can be released before its whole-day window ends).
-	history, _ := s.st.ListHistory(now.AddDate(0, 0, -7), now.AddDate(0, 0, 7))
+	// Filterable by slot and sortable, same pattern as /deployments.
+	historySlot := r.URL.Query().Get("hslot")
+	historySort := r.URL.Query().Get("hsort")
+	if historySort == "" {
+		historySort = "date_desc"
+	}
+	history, _ := s.st.ListHistory(now.AddDate(0, 0, -7), now.AddDate(0, 0, 7), historySlot, historySort)
 
 	data := pageData{
-		Slots:          views,
-		ScannedAt:      s.lastScanAt().Local().Format("2006-01-02 15:04:05"),
-		RefreshSeconds: s.cfg.Discovery.RefreshSeconds,
-		BookingHistory: history,
+		Slots:           views,
+		ScannedAt:       s.lastScanAt().Local().Format("2006-01-02 15:04:05"),
+		RefreshSeconds:  s.cfg.Discovery.RefreshSeconds,
+		BookingHistory:  history,
+		HistorySlot:     historySlot,
+		HistorySort:     historySort,
+		HistorySlotOpts: s.slotNames(),
 	}
 	if u != nil {
 		data.Username = u.Username

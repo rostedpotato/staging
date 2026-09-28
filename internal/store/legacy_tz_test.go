@@ -44,7 +44,7 @@ func TestFixLegacyUTCBookings(t *testing.T) {
 	}
 	defer st2.Close()
 
-	all, err := st2.ListHistory(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
+	all, err := st2.ListHistory(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), "", "date_desc")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestFixLegacyUTCBookings(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st3.Close()
-	all3, err := st3.ListHistory(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
+	all3, err := st3.ListHistory(time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC), "", "date_desc")
 	if err != nil {
 		t.Fatal(err)
 	}

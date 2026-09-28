@@ -137,18 +137,38 @@ func (s *Store) ListForUser(userID int64, limit int) ([]Reservation, error) {
 	return scanResList(rows)
 }
 
-// ListHistory returns every reservation (any status) whose window overlaps
-// [from, to], newest start first - used by the dashboard to show a rolling
-// window of past/upcoming bookings across all slots, with the exact
-// start/end time (not just whole-day), since a booking can be released early.
-func (s *Store) ListHistory(from, to time.Time) ([]Reservation, error) {
+// historySortColumns maps a sort key from the UI to a safe SQL ORDER BY
+// clause. Only whitelisted values are ever interpolated into the query.
+var historySortColumns = map[string]string{
+	"date_desc": "start_time DESC",
+	"date_asc":  "start_time ASC",
+	"slot_asc":  "slot ASC, start_time DESC",
+	"slot_desc": "slot DESC, start_time DESC",
+}
+
+// ListHistory returns reservations (any status) whose window overlaps
+// [from, to], optionally filtered to one slot and sorted by sortKey (see
+// historySortColumns; defaults to date_desc) - used by the dashboard to show
+// a rolling window of past/upcoming bookings across all slots, with the
+// exact start/end time (not just whole-day), since a booking can be
+// released early.
+func (s *Store) ListHistory(from, to time.Time, slot, sortKey string) ([]Reservation, error) {
 	s.ExpireDue()
-	rows, err := s.db.Query(`
+	orderBy, ok := historySortColumns[sortKey]
+	if !ok {
+		orderBy = historySortColumns["date_desc"]
+	}
+	args := []any{to.UTC().Format(time.RFC3339), from.UTC().Format(time.RFC3339)}
+	q := `
 		SELECT id, slot, user_id, username, purpose, start_time, end_time, status, created_at, released_at
 		FROM reservations
-		WHERE start_time < ? AND end_time > ?
-		ORDER BY start_time DESC`,
-		to.UTC().Format(time.RFC3339), from.UTC().Format(time.RFC3339))
+		WHERE start_time < ? AND end_time > ?`
+	if slot != "" {
+		q += ` AND slot = ?`
+		args = append(args, slot)
+	}
+	q += ` ORDER BY ` + orderBy
+	rows, err := s.db.Query(q, args...)
 	if err != nil {
 		return nil, err
 	}

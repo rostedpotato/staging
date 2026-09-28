@@ -72,6 +72,24 @@
 
   <section class="panel bookinghistory">
     <h2>Booking history (7 days back &ndash; 7 days forward)</h2>
+    <form method="get" action="/" class="bookform filterform">
+      <label>Env
+        <select name="hslot" onchange="this.form.submit()">
+          <option value="">All envs</option>
+          {{$cur := .HistorySlot}}
+          {{range .HistorySlotOpts}}<option value="{{.}}" {{if eq . $cur}}selected{{end}}>{{.}}</option>{{end}}
+        </select>
+      </label>
+      <label>Sort by
+        <select name="hsort" onchange="this.form.submit()">
+          <option value="date_desc" {{if eq .HistorySort "date_desc"}}selected{{end}}>Date (newest first)</option>
+          <option value="date_asc" {{if eq .HistorySort "date_asc"}}selected{{end}}>Date (oldest first)</option>
+          <option value="slot_asc" {{if eq .HistorySort "slot_asc"}}selected{{end}}>Env (A&ndash;Z)</option>
+          <option value="slot_desc" {{if eq .HistorySort "slot_desc"}}selected{{end}}>Env (Z&ndash;A)</option>
+        </select>
+      </label>
+      <noscript><button type="submit" class="btn small">Apply</button></noscript>
+    </form>
     <table class="audit">
       <thead><tr><th>Slot</th><th>User</th><th>From</th><th>Until</th><th>Status</th><th>Purpose</th></tr></thead>
       <tbody>
