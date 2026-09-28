@@ -23,6 +23,11 @@ services:
     cpus: 1.0
     environment:
       - GOMAXPROCS=1
+      # time.Local in Go follows the container's own TZ, not the browser's -
+      # without this the container defaults to UTC and every displayed
+      # timestamp (scan time, booking windows, deploy times) is off by the
+      # local UTC offset (e.g. 7h behind for WIB).
+      - TZ=Asia/Jakarta
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://127.0.0.1:8088/healthz"]
       interval: 30s
