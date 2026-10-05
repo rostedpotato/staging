@@ -1,4 +1,8 @@
 /config.json
+/config.local.json
+/local-mock/
 /staging-platform
 *.db
 *.db-journal
+*.db-shm
+*.db-wal

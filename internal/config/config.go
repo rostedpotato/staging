@@ -43,6 +43,12 @@ type Deploy struct {
 	JenkinsToken string `json:"jenkinsToken"`
 	// Slots that may be deployed (defaults to discovered slots if empty).
 	Slots []string `json:"slots"`
+	// AutomationSlots live on a separate host (staging-automation) that this
+	// platform instance never scans, so they're listed manually here instead
+	// of being discovered. Deploying to one of these slots targets the
+	// "<job>-automation" Jenkins job instead of the regular staging job, and
+	// skips the booking requirement (no reservation system on that host yet).
+	AutomationSlots []string `json:"automationSlots"`
 	// Services deployable via Jenkins.
 	Services []DeployService `json:"services"`
 	// PollSeconds: how often to poll Jenkins for build status.
@@ -112,6 +118,16 @@ func (c *Config) ServiceByKey(key string) *DeployService {
 		}
 	}
 	return nil
+}
+
+// IsAutomationSlot reports whether slot belongs to the staging-automation host.
+func (c *Config) IsAutomationSlot(slot string) bool {
+	for _, s := range c.Deploy.AutomationSlots {
+		if s == slot {
+			return true
+		}
+	}
+	return false
 }
 
 // Load reads and validates the config file at path.

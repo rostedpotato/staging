@@ -25,7 +25,8 @@
       { "key": "ws",  "label": "Watersheep",     "job": "deploy-ws",  "tagParam": true },
       { "key": "fs",  "label": "Fisherman",      "job": "deploy-fs",  "tagParam": true },
       { "key": "wbo", "label": "Web Backoffice", "job": "deploy-wbo", "tagParam": false }
-    ]
+    ],
+    "automationSlots": ["0pv", "0vt", "076"]
   },
   "hiddenSlots": []
 }

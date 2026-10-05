@@ -15,28 +15,30 @@ import (
 )
 
 type deployPage struct {
-	Username string
-	IsAdmin  bool
-	Enabled  bool
-	Slots    []string
-	Services []config.DeployService
-	Recent   []store.Deployment
-	Error    string
-	Notice   string
+	Username        string
+	IsAdmin         bool
+	Enabled         bool
+	Slots           []string
+	AutomationSlots []string
+	Services        []config.DeployService
+	Recent          []store.Deployment
+	Error           string
+	Notice          string
 }
 
 func (s *Server) handleDeployPage(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	recent, _ := s.st.ListDeployments("", "date_desc", 20)
 	s.render(w, "deploy.html", deployPage{
-		Username: u.Username,
-		IsAdmin:  u.IsAdmin(),
-		Enabled:  s.cfg.Deploy.Enabled,
-		Slots:    s.slotNames(),
-		Services: s.cfg.Deploy.Services,
-		Recent:   recent,
-		Notice:   r.URL.Query().Get("notice"),
-		Error:    r.URL.Query().Get("error"),
+		Username:        u.Username,
+		IsAdmin:         u.IsAdmin(),
+		Enabled:         s.cfg.Deploy.Enabled,
+		Slots:           s.slotNames(),
+		AutomationSlots: s.cfg.Deploy.AutomationSlots,
+		Services:        s.cfg.Deploy.Services,
+		Recent:          recent,
+		Notice:          r.URL.Query().Get("notice"),
+		Error:           r.URL.Query().Get("error"),
 	})
 }
 

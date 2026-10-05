@@ -71,12 +71,18 @@ func (s *Service) Start(ctx context.Context, req Request) (*store.Deployment, er
 		req.RefType = "branch"
 	}
 
-	if err := s.checkBooking(req); err != nil {
+	// Automation slots live on a separate host with no booking system there,
+	// and their Jenkins job has an "-automation" suffix.
+	automation := s.cfg.IsAutomationSlot(req.Slot)
+	job := svc.Job
+	if automation {
+		job += "-automation"
+	} else if err := s.checkBooking(req); err != nil {
 		return nil, err
 	}
 
 	dep, err := s.st.CreateDeployment(req.Slot, req.Service, req.RefType, req.Ref,
-		req.UserID, req.Username, svc.Job)
+		req.UserID, req.Username, job)
 	if err != nil {
 		return nil, err // includes ErrSlotBusy
 	}
@@ -88,14 +94,14 @@ func (s *Service) Start(ctx context.Context, req Request) (*store.Deployment, er
 		params["BRANCH"] = req.Ref
 	}
 
-	queueURL, err := s.prov.Trigger(ctx, svc.Job, params)
+	queueURL, err := s.prov.Trigger(ctx, job, params)
 	if err != nil {
 		_ = s.st.Finish(dep.ID, store.DepError, "trigger failed: "+err.Error())
 		return nil, err
 	}
 	_ = s.st.SetQueue(dep.ID, queueURL)
 
-	go s.watch(dep.ID, svc.Job, queueURL)
+	go s.watch(dep.ID, job, queueURL)
 	return s.st.DeploymentByID(dep.ID)
 }
 
