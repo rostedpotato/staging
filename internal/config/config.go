@@ -15,6 +15,10 @@ type Discovery struct {
 	DockerBin      string   `json:"dockerBin"`
 	Services       []string `json:"services"`
 	RefreshSeconds int      `json:"refreshSeconds"`
+	// ProbeHost is where service ports are curled for /actuator/info. From
+	// inside the platform container this must be the Docker host
+	// ("host.docker.internal"); use "127.0.0.1" when running on the host.
+	ProbeHost string `json:"probeHost"`
 }
 
 type Auth struct {
@@ -57,13 +61,44 @@ type Deploy struct {
 	RequireBooking bool `json:"requireBooking"`
 }
 
+// AutomationHost configures read-only SSH access to the staging-automation
+// server so its slots (0pv/0vt/076, on a host this platform instance never
+// scans directly) can be shown on the same dashboard. The same SSH
+// connection is also the intended path for a later "stop idle env" action.
+type AutomationHost struct {
+	// Enabled turns remote scanning on. If false, the dashboard simply omits
+	// the staging-automation section.
+	Enabled bool `json:"enabled"`
+	// Addr is host:port of the SSH server, e.g. "parkee-agent-automation:22".
+	Addr string `json:"addr"`
+	// User is the SSH username (should be a restricted, read-only account).
+	User string `json:"user"`
+	// PrivateKeyPath points at a PEM-encoded private key file (not the key
+	// content itself - never put key material directly in config.json).
+	PrivateKeyPath string `json:"privateKeyPath"`
+	// HostKey is the expected SSH host public key, in authorized_keys format
+	// (e.g. "ssh-ed25519 AAAA..."), used to pin the connection instead of
+	// trusting whatever key the server presents. Required when Enabled.
+	HostKey string `json:"hostKey"`
+	// Discovery mirrors the local Discovery config but describes the layout
+	// on the REMOTE host (its own appRoot/slotDirPrefix/services may differ).
+	Discovery Discovery `json:"discovery"`
+	// RefreshSeconds: how often to re-run the remote scan (separate from the
+	// local discovery.refreshSeconds since it's a slower network operation).
+	RefreshSeconds int `json:"refreshSeconds"`
+	// TimeoutSeconds bounds each SSH connection+command round trip so a
+	// hung/unreachable automation host can never block the scan loop.
+	TimeoutSeconds int `json:"timeoutSeconds"`
+}
+
 type Config struct {
-	Listen      string    `json:"listen"`
-	DBPath      string    `json:"dbPath"`
-	Discovery   Discovery `json:"discovery"`
-	Auth        Auth      `json:"auth"`
-	Deploy      Deploy    `json:"deploy"`
-	HiddenSlots []string  `json:"hiddenSlots"`
+	Listen         string         `json:"listen"`
+	DBPath         string         `json:"dbPath"`
+	Discovery      Discovery      `json:"discovery"`
+	AutomationHost AutomationHost `json:"automationHost"`
+	Auth           Auth           `json:"auth"`
+	Deploy         Deploy         `json:"deploy"`
+	HiddenSlots    []string       `json:"hiddenSlots"`
 }
 
 // withDefaults fills sensible defaults so a partial config still works.
@@ -92,6 +127,9 @@ func (c *Config) withDefaults() {
 	if c.Discovery.RefreshSeconds <= 0 {
 		c.Discovery.RefreshSeconds = 900
 	}
+	if c.Discovery.ProbeHost == "" {
+		c.Discovery.ProbeHost = "host.docker.internal"
+	}
 	if c.DBPath == "" {
 		c.DBPath = "data/platform.db"
 	}
@@ -107,6 +145,21 @@ func (c *Config) withDefaults() {
 			{Key: "fs", Label: "Fisherman", Job: "deploy-fs", TagParam: true},
 			{Key: "wbo", Label: "Web Backoffice", Job: "deploy-wbo", TagParam: false},
 		}
+	}
+	if c.AutomationHost.RefreshSeconds <= 0 {
+		c.AutomationHost.RefreshSeconds = 900
+	}
+	if c.AutomationHost.TimeoutSeconds <= 0 {
+		c.AutomationHost.TimeoutSeconds = 20
+	}
+	if c.AutomationHost.Discovery.SlotDirPrefix == "" {
+		c.AutomationHost.Discovery.SlotDirPrefix = "agent-"
+	}
+	if c.AutomationHost.Discovery.RepoSubdir == "" {
+		c.AutomationHost.Discovery.RepoSubdir = "parkee-agent-backoffice"
+	}
+	if len(c.AutomationHost.Discovery.Services) == 0 {
+		c.AutomationHost.Discovery.Services = []string{"watersheep", "fisherman"}
 	}
 }
 

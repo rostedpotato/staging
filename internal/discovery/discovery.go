@@ -5,7 +5,6 @@ package discovery
 import (
 	"context"
 	"encoding/json"
-	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -26,15 +25,6 @@ func (d *Discoverer) Scan(ctx context.Context, hidden func(string) bool) ([]Slot
 	slotNames := d.slotDirs()
 	domains := domainsBySlot(d.cfg.NginxSitesDir, d.cfg.AppRoot, d.cfg.SlotDirPrefix, slotNames)
 
-	containers, err := d.listContainers(ctx)
-	if err != nil {
-		// Docker may be unreachable; still return slots from disk so the UI
-		// shows versions/domains even without container state. Log it though,
-		// since a silent failure here makes every service look "down".
-		log.Printf("discovery: docker ps failed, services will show as not found: %v", err)
-		containers = nil
-	}
-
 	var slots []Slot
 	for _, name := range slotNames {
 		if hidden != nil && hidden(name) {
@@ -45,7 +35,7 @@ func (d *Discoverer) Scan(ctx context.Context, hidden func(string) bool) ([]Slot
 
 		branch, commit, commitTime, version := gitInfo(ctx, repoDir)
 
-		services := d.servicesFor(name, containers)
+		services := d.servicesFor(name, dir)
 		services = append(services, wboService(repoDir))
 
 		slot := Slot{
@@ -62,25 +52,30 @@ func (d *Discoverer) Scan(ctx context.Context, hidden func(string) bool) ([]Slot
 	}
 
 	sort.Slice(slots, func(i, j int) bool { return slots[i].Name < slots[j].Name })
-	fetchRunningVersions(ctx, slots)
-	return slots, err
+	d.probeServices(ctx, slots)
+	return slots, nil
 }
 
-// fetchRunningVersions hits /actuator/info on every running service across
-// all slots, concurrently, so this doesn't add up to N*services sequential
-// HTTP round-trips on a scan that already runs in the background.
-func fetchRunningVersions(ctx context.Context, slots []Slot) {
+// probeServices curls /actuator/info on every port-backed service across all
+// slots concurrently, so the scan costs one probe timeout, not N sequential
+// ones. A 2xx answer is "running"; anything else is "down".
+func (d *Discoverer) probeServices(ctx context.Context, slots []Slot) {
 	var wg sync.WaitGroup
 	for i := range slots {
 		for j := range slots[i].Services {
 			svc := &slots[i].Services[j]
-			if !svc.Found || svc.HostPort == "" {
+			if svc.HostPort == "" {
 				continue
 			}
 			wg.Add(1)
 			go func(svc *Service) {
 				defer wg.Done()
-				svc.RunningVersion = runtimeVersion(ctx, svc.HostPort)
+				res := probeActuator(ctx, d.cfg.ProbeHost, svc.HostPort)
+				svc.Status = res.Status
+				if res.Up {
+					svc.State, svc.Health = "running", "healthy"
+					svc.RunningVersion = res.Version
+				}
 			}(svc)
 		}
 	}
@@ -108,24 +103,22 @@ func (d *Discoverer) slotDirs() []string {
 	return names
 }
 
-// servicesFor matches configured service names to containers named
-// "<service>-<slot>".
-func (d *Discoverer) servicesFor(slot string, containers []dockerContainer) []Service {
-	byName := map[string]dockerContainer{}
-	for _, c := range containers {
-		byName[c.Names] = c
-	}
+// servicesFor builds one Service per configured name, with its port read from
+// the slot's .env (<SERVICE>_PORT). Services start as "down"; probeServices
+// flips them to "running" once /actuator/info answers.
+func (d *Discoverer) servicesFor(slot, slotDir string) []Service {
 	var out []Service
 	for _, svcName := range d.cfg.Services {
-		want := svcName + "-" + slot
-		svc := Service{Name: svcName, Container: want}
-		if c, ok := byName[want]; ok {
-			svc.Found = true
-			svc.Image = c.Image
-			svc.State = strings.ToLower(c.State)
-			svc.Status = c.Status
-			svc.Health = health(c.Status)
-			svc.HostPort = firstHostPort(c.Ports)
+		svc := Service{
+			Name:      svcName,
+			Container: svcName + "-" + slot,
+			Found:     true,
+			State:     "down",
+			Health:    "none",
+			HostPort:  slotPort(slotDir, svcName),
+		}
+		if svc.HostPort == "" {
+			svc.Status = "no " + strings.ToUpper(svcName) + "_PORT in .env"
 		}
 		out = append(out, svc)
 	}

@@ -27,48 +27,23 @@
   {{end}}
 
   <div class="grid">
-  {{range .Slots}}
-    <section class="card status-{{.Overall}}">
-      <div class="card-head">
-        <h2>{{.Name}}</h2>
-        <span class="badge {{.Overall}}">{{.Overall}}</span>
-      </div>
-
-      <div class="row"><span class="k">Branch</span><span class="v">{{if .Branch}}{{.Branch}}{{else}}—{{end}}</span></div>
-      <div class="row"><span class="k">Commit</span><span class="v">{{if .Commit}}<code>{{.Commit}}</code>{{else}}—{{end}}</span></div>
-      {{if .Version}}<div class="row"><span class="k">Version</span><span class="v">{{.Version}}</span></div>{{end}}
-      {{if .CommitTime}}<div class="row"><span class="k">Committed</span><span class="v">{{.CommitTime}}</span></div>{{end}}
-
-      <div class="services">
-        {{range .Services}}
-          <div class="svc svc-{{.State}}">
-            <span class="dot {{if .Found}}{{.State}}{{else}}missing{{end}}"></span>
-            <span class="svc-name">{{.Name}}</span>
-            <span class="svc-status">
-              {{if .Found}}{{.Status}}{{if .HostPort}} · :{{.HostPort}}{{end}}{{else}}not found{{end}}
-              {{if .RunningVersion}} · running <code>{{.RunningVersion}}</code>{{end}}
-            </span>
-          </div>
-        {{end}}
-      </div>
-
-      <div class="booking">
-        {{if .Booking}}
-          <span class="lock">🔒 booked</span>
-          <span class="by">{{.Booking.Username}} until {{fmtTime .Booking.End}}</span>
-        {{else}}
-          <span class="free">available</span>
-        {{end}}
-      </div>
-
-      {{if .Domains}}
-      <div class="domains">
-        {{range .Domains}}<a class="domain" href="https://{{.}}" target="_blank" rel="noopener">{{.}}</a>{{end}}
-      </div>
-      {{end}}
-    </section>
-  {{end}}
+  {{range .Slots}}{{template "slotcard" .}}{{end}}
   </div>
+
+  {{if .AutomationEnabled}}
+  <h2 class="section-title">Staging Automation</h2>
+  <div class="meta">
+    <span>Scanned: {{.AutomationScannedAt}}</span>
+    <span>Slots: {{len .AutomationSlots}}</span>
+  </div>
+  {{if .AutomationError}}<div class="banner error">Automation host warning: {{.AutomationError}}</div>{{end}}
+  {{if not .AutomationSlots}}
+    <p class="empty">No automation slots reachable yet.</p>
+  {{end}}
+  <div class="grid">
+  {{range .AutomationSlots}}{{template "slotcard" .}}{{end}}
+  </div>
+  {{end}}
 
   <section class="panel bookinghistory">
     <h2>Booking history (7 days back &ndash; 7 days forward)</h2>
@@ -115,3 +90,45 @@
 </footer>
 </body>
 </html>
+
+{{define "slotcard"}}
+<section class="card status-{{.Overall}}">
+  <div class="card-head">
+    <h2>{{.Name}}</h2>
+    <span class="badge {{.Overall}}">{{.Overall}}</span>
+  </div>
+
+  <div class="row"><span class="k">Branch</span><span class="v">{{if .Branch}}{{.Branch}}{{else}}—{{end}}</span></div>
+  <div class="row"><span class="k">Commit</span><span class="v">{{if .Commit}}<code>{{.Commit}}</code>{{else}}—{{end}}</span></div>
+  {{if .Version}}<div class="row"><span class="k">Version</span><span class="v">{{.Version}}</span></div>{{end}}
+  {{if .CommitTime}}<div class="row"><span class="k">Committed</span><span class="v">{{.CommitTime}}</span></div>{{end}}
+
+  <div class="services">
+    {{range .Services}}
+      <div class="svc svc-{{.State}}">
+        <span class="dot {{if .Found}}{{.State}}{{else}}missing{{end}}"></span>
+        <span class="svc-name">{{.Name}}</span>
+        <span class="svc-status">
+          {{if .Found}}{{.Status}}{{if .HostPort}} · :{{.HostPort}}{{end}}{{else}}not found{{end}}
+          {{if .RunningVersion}} · running <code>{{.RunningVersion}}</code>{{end}}
+        </span>
+      </div>
+    {{end}}
+  </div>
+
+  <div class="booking">
+    {{if .Booking}}
+      <span class="lock">🔒 booked</span>
+      <span class="by">{{.Booking.Username}} until {{fmtTime .Booking.End}}</span>
+    {{else}}
+      <span class="free">available</span>
+    {{end}}
+  </div>
+
+  {{if .Domains}}
+  <div class="domains">
+    {{range .Domains}}<a class="domain" href="https://{{.}}" target="_blank" rel="noopener">{{.}}</a>{{end}}
+  </div>
+  {{end}}
+</section>
+{{end}}

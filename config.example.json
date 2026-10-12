@@ -10,6 +10,23 @@
     "services": ["watersheep", "fisherman"],
     "refreshSeconds": 900
   },
+  "automationHost": {
+    "enabled": false,
+    "addr": "parkee-agent-automation:22",
+    "user": "platform-readonly",
+    "privateKeyPath": "/app/secrets/automation_id_ed25519",
+    "hostKey": "",
+    "refreshSeconds": 900,
+    "timeoutSeconds": 20,
+    "discovery": {
+      "appRoot": "/data/app",
+      "slotDirPrefix": "agent-",
+      "repoSubdir": "parkee-agent-backoffice",
+      "nginxSitesDir": "/etc/nginx/sites-enabled",
+      "dockerBin": "docker",
+      "services": ["watersheep", "fisherman"]
+    }
+  },
   "auth": {
     "sessionTTLHours": 12,
     "secure": false

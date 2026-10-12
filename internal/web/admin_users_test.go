@@ -47,8 +47,9 @@ func newTestServer(t *testing.T, slots ...string) (*httptest.Server, *store.Stor
 
 	a := auth.New(cfg, st)
 	disc := discovery.New(cfg.Discovery)
+	remoteDisc := discovery.NewRemote(cfg.AutomationHost)
 	dep := deploy.New(cfg, st, jenkins.New("", "", ""))
-	srv, err := NewServer(cfg, disc, a, st, dep)
+	srv, err := NewServer(cfg, disc, remoteDisc, a, st, dep)
 	if err != nil {
 		t.Fatal(err)
 	}

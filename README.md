@@ -116,6 +116,68 @@ go run . -config config.json
 | `discovery.refreshSeconds` | dashboard auto-refresh interval |
 | `hiddenSlots` | slot names to hide (legacy/dead) |
 
+## Staging Automation (remote host, read over SSH)
+
+The `0pv`/`0vt`/`076` slots live on a **separate server**
+(`parkee-agent-automation`) that this platform's local `discovery` can never
+see directly (no shared filesystem, no shared `docker.sock`). To show them on
+the same dashboard, the platform opens a read-only SSH connection to that host
+on a schedule, runs one script there (`docker ps` + git + nginx, same
+read-only probes as local discovery), and renders the result in a
+"Staging Automation" section.
+
+### Setup (one-time, on both hosts)
+
+1. **Generate a dedicated keypair** (don't reuse a personal key):
+   ```sh
+   ssh-keygen -t ed25519 -N '' -f automation_id_ed25519 -C "staging-platform read-only"
+   ```
+2. **On the automation host**, create a restricted user (or reuse one with
+   minimal privileges) and authorize the public key, restricted to only the
+   read-only probe command so this key can never get an interactive shell:
+   ```sh
+   # ~platform-readonly/.ssh/authorized_keys
+   command="/usr/bin/docker ps -a --format '{{json .}}' ; git --version" ,no-pty,no-X11-forwarding,no-port-forwarding ssh-ed25519 AAAA...
+   ```
+   (The actual command run is generated dynamically by this platform - see
+   `internal/discovery/remote_script.go` - the forced-command restriction
+   above is a defense-in-depth example; a full solution grants exactly the
+   `docker`/`git`/`grep` calls the script needs and nothing else. Review the
+   script before relaxing this.)
+3. **Get the host's SSH public key fingerprint** so the connection is pinned
+   instead of trust-on-first-use:
+   ```sh
+   ssh-keyscan -t ed25519 parkee-agent-automation   # copy the ssh-ed25519 AAAA... line
+   ```
+4. **On the staging server** (where this platform runs), place the private
+   key where the container can read it read-only, e.g. `./secrets/automation_id_ed25519`,
+   and mount it in `docker-compose.yml`:
+   ```yaml
+   volumes:
+     - ./secrets/automation_id_ed25519:/app/secrets/automation_id_ed25519:ro
+   ```
+5. Fill in `config.json`:
+   ```json
+   "automationHost": {
+     "enabled": true,
+     "addr": "parkee-agent-automation:22",
+     "user": "platform-readonly",
+     "privateKeyPath": "/app/secrets/automation_id_ed25519",
+     "hostKey": "ssh-ed25519 AAAA...",
+     "refreshSeconds": 900,
+     "discovery": { "appRoot": "/data/app", "slotDirPrefix": "agent-", "services": ["watersheep", "fisherman"] }
+   }
+   ```
+6. Restart (`docker compose up -d --build`) and check the dashboard - if the
+   host is unreachable, the section shows a warning banner instead of
+   breaking the rest of the page (same resilience pattern as local discovery).
+
+### Why SSH (vs. a second platform instance or an HTTP exporter)
+
+The same SSH channel is the intended path for a later feature (stopping an
+idle automation env) - one secured connection does both read (now) and write
+(later), instead of standing up separate infrastructure for each.
+
 ## Endpoints
 
 - `GET /` — HTML dashboard

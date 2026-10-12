@@ -53,7 +53,7 @@ code { background: #0c0e13; padding: 1px 6px; border-radius: 4px; }
 .svc-status { color: var(--muted); font-size: 12px; }
 .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--unknown); flex: none; }
 .dot.running { background: var(--healthy); }
-.dot.exited, .dot.missing { background: var(--down); }
+.dot.exited, .dot.missing, .dot.down { background: var(--down); }
 .domains { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
 .domain { font-size: 12px; color: #8ab4ff; text-decoration: none; background: #0c0e13; padding: 2px 8px; border-radius: 6px; border: 1px solid var(--line); }
 .domain:hover { text-decoration: underline; }

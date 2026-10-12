@@ -33,12 +33,13 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	cfg    *config.Config
-	disc   *discovery.Discoverer
-	auth   *auth.Authenticator
-	st     *store.Store
-	deploy *deploy.Service
-	tmpl   *template.Template
+	cfg        *config.Config
+	disc       *discovery.Discoverer
+	remoteDisc *discovery.RemoteDiscoverer
+	auth       *auth.Authenticator
+	st         *store.Store
+	deploy     *deploy.Service
+	tmpl       *template.Template
 
 	// rawScanMu guards the cached, unfiltered discovery result. It's kept
 	// fresh by a background goroutine (see refreshLoop) rather than by
@@ -50,9 +51,17 @@ type Server struct {
 	rawScanAt time.Time
 	rawSlots  []discovery.Slot
 	rawErr    error
+
+	// automationScanMu guards the cached automation-host scan (fetched over
+	// SSH, see remote.go). Kept separate from rawScan* so a slow/unreachable
+	// automation host never blocks or taints the local staging scan.
+	automationScanMu sync.RWMutex
+	automationScanAt time.Time
+	automationSlots  []discovery.Slot
+	automationErr    error
 }
 
-func NewServer(cfg *config.Config, disc *discovery.Discoverer, a *auth.Authenticator, st *store.Store, dep *deploy.Service) (*Server, error) {
+func NewServer(cfg *config.Config, disc *discovery.Discoverer, remoteDisc *discovery.RemoteDiscoverer, a *auth.Authenticator, st *store.Store, dep *deploy.Service) (*Server, error) {
 	funcs := template.FuncMap{
 		"fmtTime": func(t time.Time) string {
 			if t.IsZero() {
@@ -71,7 +80,7 @@ func NewServer(cfg *config.Config, disc *discovery.Discoverer, a *auth.Authentic
 	if err != nil {
 		return nil, err
 	}
-	return &Server{cfg: cfg, disc: disc, auth: a, st: st, deploy: dep, tmpl: tmpl}, nil
+	return &Server{cfg: cfg, disc: disc, remoteDisc: remoteDisc, auth: a, st: st, deploy: dep, tmpl: tmpl}, nil
 }
 
 func (s *Server) renderBookings(w http.ResponseWriter, data bookingsPage) {
@@ -149,6 +158,14 @@ type pageData struct {
 	HistorySlot     string
 	HistorySort     string
 	HistorySlotOpts []string
+
+	// Automation* describe the staging-automation host (0pv/0vt/076),
+	// scanned separately over SSH. AutomationEnabled is false when
+	// automationHost.enabled is false in config, so the section is hidden.
+	AutomationEnabled   bool
+	AutomationSlots     []slotView
+	AutomationScannedAt string
+	AutomationError     string
 }
 
 // slotView pairs a discovered slot with its current active booking (if any).
@@ -176,6 +193,46 @@ func (s *Server) StartBackgroundScan(ctx context.Context) {
 			}
 		}
 	}()
+
+	if !s.cfg.AutomationHost.Enabled {
+		return
+	}
+	s.refreshAutomationScan(ctx)
+	go func() {
+		interval := time.Duration(s.cfg.AutomationHost.RefreshSeconds) * time.Second
+		t := time.NewTicker(interval)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-t.C:
+				s.refreshAutomationScan(ctx)
+			}
+		}
+	}()
+}
+
+// refreshAutomationScan scans the staging-automation host over SSH and
+// updates the cache. Like refreshScan, a failed/unreachable host keeps the
+// last good result instead of blanking the section - the error is only
+// surfaced as a banner when there's nothing cached to show instead.
+func (s *Server) refreshAutomationScan(ctx context.Context) {
+	slots, err := s.remoteDisc.Scan(ctx)
+	s.automationScanMu.Lock()
+	defer s.automationScanMu.Unlock()
+	s.automationErr = err
+	s.automationScanAt = time.Now()
+	if len(slots) > 0 || err == nil {
+		s.automationSlots = slots
+	}
+}
+
+// automationScan returns the last cached automation-host scan result.
+func (s *Server) automationScan() ([]discovery.Slot, time.Time, error) {
+	s.automationScanMu.RLock()
+	defer s.automationScanMu.RUnlock()
+	return s.automationSlots, s.automationScanAt, s.automationErr
 }
 
 // refreshScan runs discovery and updates the cache. A scan can return slots
@@ -288,6 +345,21 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	// is still displayed shouldn't alarm the user - the shown data is fine.
 	if err != nil && len(views) == 0 {
 		data.Error = err.Error()
+	}
+
+	// Staging-automation has no booking system yet, so its views never carry
+	// a Booking - the dashboard section just shows status/version/domains.
+	if data.AutomationEnabled = s.cfg.AutomationHost.Enabled; data.AutomationEnabled {
+		autoSlots, autoAt, autoErr := s.automationScan()
+		autoViews := make([]slotView, 0, len(autoSlots))
+		for _, sl := range autoSlots {
+			autoViews = append(autoViews, slotView{Slot: sl})
+		}
+		data.AutomationSlots = autoViews
+		data.AutomationScannedAt = autoAt.Local().Format("2006-01-02 15:04:05")
+		if autoErr != nil && len(autoViews) == 0 {
+			data.AutomationError = autoErr.Error()
+		}
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, "dashboard.html", data); err != nil {

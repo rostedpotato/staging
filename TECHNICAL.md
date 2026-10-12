@@ -44,10 +44,9 @@ internal/
     render.go                  render halaman login/reset-password
   discovery/                   scan read-only ke host staging
     discovery.go                Scan(): orkestrasi utama, gabungkan semua sumber
-    docker.go                   exec `docker ps`, parse JSON
+    probe.go                    curl GET /actuator/info per service (up/down + versi); port dari .env slot
     gitinfo.go                  exec `git` per slot repo (branch/commit/waktu)
     nginx.go                    parse nginx sites-enabled -> domain per slot
-    runtime_version.go          GET /actuator/info ke watersheep/fisherman yang running
     model.go                    tipe Slot/Service + Slot.Overall() (health badge)
   jenkins/      jenkins.go     client Jenkins: Trigger/ResolveBuild/BuildStatus/ConsoleText
   deploy/       deploy.go      orkestrasi deploy: cek booking, slot lock, state machine, watcher goroutine

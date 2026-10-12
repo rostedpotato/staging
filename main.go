@@ -54,7 +54,11 @@ func main() {
 	}
 
 	disc := discovery.New(cfg.Discovery)
-	srv, err := web.NewServer(cfg, disc, authn, st, dep)
+	remoteDisc := discovery.NewRemote(cfg.AutomationHost)
+	if cfg.AutomationHost.Enabled && cfg.AutomationHost.HostKey == "" {
+		log.Printf("WARNING: automationHost.enabled but hostKey missing -> automation scan will fail")
+	}
+	srv, err := web.NewServer(cfg, disc, remoteDisc, authn, st, dep)
 	if err != nil {
 		log.Fatalf("web: %v", err)
 	}
