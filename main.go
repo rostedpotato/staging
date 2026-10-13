@@ -54,20 +54,23 @@ func main() {
 	}
 
 	disc := discovery.New(cfg.Discovery)
-	remoteDisc := discovery.NewRemote(cfg.AutomationHost)
-	if cfg.AutomationHost.Enabled && cfg.AutomationHost.HostKey == "" {
-		log.Printf("WARNING: automationHost.enabled but hostKey missing -> automation scan will fail")
+	if cfg.Automation.Host == "" {
+		log.Printf("WARNING: automation.host not set -> automation discovery and status checks will fail")
 	}
-	srv, err := web.NewServer(cfg, disc, remoteDisc, authn, st, dep)
+	seedEnvironments(st, disc, cfg)
+	if err := st.FailStaleDiscoveryRuns(); err != nil {
+		log.Printf("discovery: close stale runs: %v", err)
+	}
+	srv, err := web.NewServer(cfg, disc, authn, st, dep)
 	if err != nil {
 		log.Fatalf("web: %v", err)
 	}
 
-	// Discovery runs on its own background schedule instead of per-request,
-	// so a slow docker/git scan on a busy host never blocks a page load.
-	scanCtx, stopScan := context.WithCancel(context.Background())
-	defer stopScan()
-	srv.StartBackgroundScan(scanCtx)
+	// Status checks (curl /actuator/info) run on their own schedule so page
+	// loads never wait on them. Discovery is admin-triggered only.
+	statusCtx, stopStatus := context.WithCancel(context.Background())
+	defer stopStatus()
+	srv.StartStatusLoop(statusCtx)
 
 	httpSrv := &http.Server{
 		Addr:    cfg.Listen,
@@ -95,6 +98,21 @@ func main() {
 	defer cancel()
 	_ = httpSrv.Shutdown(ctx)
 	log.Println("shut down")
+}
+
+// seedEnvironments fills an empty inventory from slot .env files and
+// automation.slots, so the dashboard works before the first discovery run.
+func seedEnvironments(st *store.Store, disc *discovery.Discoverer, cfg *config.Config) {
+	n, err := st.CountEnvironments()
+	if err != nil || n > 0 {
+		return
+	}
+	seed := disc.SeedEnvs(cfg.Automation)
+	if err := st.ApplyEnvChanges(seed); err != nil {
+		log.Printf("seed environments: %v", err)
+		return
+	}
+	log.Printf("seeded %d environments (run discovery from /admin/discovery to refresh)", len(seed))
 }
 
 // bootstrapAdmin creates the very first admin account if the database has no

@@ -26,13 +26,9 @@ type bookingsPage struct {
 	Notice   string
 }
 
+// slotNames lists every bookable env: staging first, then automation.
 func (s *Server) slotNames() []string {
-	slots, _ := s.scan()
-	names := make([]string, 0, len(slots))
-	for _, sl := range slots {
-		names = append(names, sl.Name)
-	}
-	return names
+	return append(s.envNames(store.ServerStaging), s.envNames(store.ServerAutomation)...)
 }
 
 func (s *Server) handleBookings(w http.ResponseWriter, r *http.Request) {

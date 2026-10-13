@@ -99,3 +99,31 @@ CREATE TABLE IF NOT EXISTS slot_settings (
     hidden   INTEGER NOT NULL DEFAULT 0,  -- hide from dashboard/booking/deploy
     note     TEXT NOT NULL DEFAULT ''
 );
+
+-- Env inventory, written only when an admin saves a reviewed discovery run.
+-- Rows are never deleted (bookings/deployments reference env names); envs no
+-- longer found are marked status='missing'.
+CREATE TABLE IF NOT EXISTS environments (
+    name       TEXT PRIMARY KEY,               -- e.g. development-09, 0vt
+    server     TEXT NOT NULL,                  -- staging | automation
+    ports      TEXT NOT NULL DEFAULT '{}',     -- JSON {"watersheep":9020,...}
+    status     TEXT NOT NULL DEFAULT 'active', -- active | missing
+    first_seen TEXT NOT NULL,
+    last_seen  TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+-- One row per discovery run; result_json holds the proposed changes until an
+-- admin applies or discards them.
+CREATE TABLE IF NOT EXISTS discovery_runs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    started_by  TEXT NOT NULL,
+    servers     TEXT NOT NULL,                     -- "staging,automation"
+    status      TEXT NOT NULL DEFAULT 'running',   -- running|ready|applied|discarded|failed
+    result_json TEXT NOT NULL DEFAULT '',
+    error       TEXT NOT NULL DEFAULT '',
+    started_at  TEXT NOT NULL,
+    finished_at TEXT,
+    decided_by  TEXT NOT NULL DEFAULT '',
+    decided_at  TEXT
+);

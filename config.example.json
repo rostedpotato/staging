@@ -7,25 +7,13 @@
     "repoSubdir": "parkee-agent-backoffice",
     "nginxSitesDir": "/etc/nginx/sites-enabled",
     "dockerBin": "docker",
-    "services": ["watersheep", "fisherman"],
-    "refreshSeconds": 900
-  },
-  "automationHost": {
-    "enabled": false,
-    "addr": "parkee-agent-automation:22",
-    "user": "platform-readonly",
-    "privateKeyPath": "/app/secrets/automation_id_ed25519",
-    "hostKey": "",
+    "services": [
+      "watersheep",
+      "fisherman"
+    ],
     "refreshSeconds": 900,
-    "timeoutSeconds": 20,
-    "discovery": {
-      "appRoot": "/data/app",
-      "slotDirPrefix": "agent-",
-      "repoSubdir": "parkee-agent-backoffice",
-      "nginxSitesDir": "/etc/nginx/sites-enabled",
-      "dockerBin": "docker",
-      "services": ["watersheep", "fisherman"]
-    }
+    "probeHost": "host.docker.internal",
+    "statusSeconds": 120
   },
   "auth": {
     "sessionTTLHours": 12,
@@ -39,11 +27,57 @@
     "pollSeconds": 5,
     "requireBooking": true,
     "services": [
-      { "key": "ws",  "label": "Watersheep",     "job": "deploy-ws",  "tagParam": true },
-      { "key": "fs",  "label": "Fisherman",      "job": "deploy-fs",  "tagParam": true },
-      { "key": "wbo", "label": "Web Backoffice", "job": "deploy-wbo", "tagParam": false }
-    ],
-    "automationSlots": ["0pv", "0vt", "076"]
+      {
+        "key": "ws",
+        "label": "Watersheep",
+        "job": "deploy-ws",
+        "tagParam": true
+      },
+      {
+        "key": "fs",
+        "label": "Fisherman",
+        "job": "deploy-fs",
+        "tagParam": true
+      },
+      {
+        "key": "wbo",
+        "label": "Web Backoffice",
+        "job": "deploy-wbo",
+        "tagParam": false
+      }
+    ]
   },
-  "hiddenSlots": []
+  "hiddenSlots": [],
+  "automation": {
+    "host": "10.20.3.142",
+    "slots": [
+      {
+        "name": "0pv",
+        "ports": {
+          "watersheep": 9000,
+          "fisherman": 4000
+        }
+      },
+      {
+        "name": "0vt",
+        "ports": {
+          "watersheep": 9004,
+          "fisherman": 4004
+        }
+      },
+      {
+        "name": "076",
+        "ports": {
+          "watersheep": 9010,
+          "fisherman": 4010
+        }
+      }
+    ],
+    "ssh": {
+      "user": "parkee",
+      "port": 22,
+      "keyPath": "/app/secrets/automation_key"
+    },
+    "containerInfix": "automation-"
+  }
 }

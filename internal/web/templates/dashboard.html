@@ -36,10 +36,6 @@
     <span>Scanned: {{.AutomationScannedAt}}</span>
     <span>Slots: {{len .AutomationSlots}}</span>
   </div>
-  {{if .AutomationError}}<div class="banner error">Automation host warning: {{.AutomationError}}</div>{{end}}
-  {{if not .AutomationSlots}}
-    <p class="empty">No automation slots reachable yet.</p>
-  {{end}}
   <div class="grid">
   {{range .AutomationSlots}}{{template "slotcard" .}}{{end}}
   </div>

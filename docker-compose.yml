@@ -50,3 +50,6 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock
       - /data/app:/data/app:ro                          # slot dirs + git + .env
       - /etc/nginx/sites-enabled:/etc/nginx/sites-enabled:ro  # domain mapping
+      # SSH key of the host user that can `ssh parkee@<automation host>`.
+      # Used only by admin-triggered discovery (automation.ssh.keyPath).
+      - /home/parkee/.ssh/id_rsa:/app/secrets/automation_key:ro

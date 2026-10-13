@@ -116,67 +116,50 @@ go run . -config config.json
 | `discovery.refreshSeconds` | dashboard auto-refresh interval |
 | `hiddenSlots` | slot names to hide (legacy/dead) |
 
-## Staging Automation (remote host, read over SSH)
+## Env discovery and status checks
 
-The `0pv`/`0vt`/`076` slots live on a **separate server**
-(`parkee-agent-automation`) that this platform's local `discovery` can never
-see directly (no shared filesystem, no shared `docker.sock`). To show them on
-the same dashboard, the platform opens a read-only SSH connection to that host
-on a schedule, runs one script there (`docker ps` + git + nginx, same
-read-only probes as local discovery), and renders the result in a
-"Staging Automation" section.
+Two separate jobs:
 
-### Setup (one-time, on both hosts)
+| | Discovery (which envs exist, which ports) | Status (up/down) |
+|---|---|---|
+| How | `docker ps` on staging (local) and on staging-automation (`ssh parkee@<automation.host>`) | `GET http://<host>:<port>/actuator/info` per service |
+| When | Only when an admin presses **Run discovery** on `/admin/discovery` | Automatically every `discovery.statusSeconds` (default 120) |
+| Result | A draft the admin reviews, then **Save** or **Discard** | Shown on the dashboard |
 
-1. **Generate a dedicated keypair** (don't reuse a personal key):
-   ```sh
-   ssh-keygen -t ed25519 -N '' -f automation_id_ed25519 -C "staging-platform read-only"
-   ```
-2. **On the automation host**, create a restricted user (or reuse one with
-   minimal privileges) and authorize the public key, restricted to only the
-   read-only probe command so this key can never get an interactive shell:
-   ```sh
-   # ~platform-readonly/.ssh/authorized_keys
-   command="/usr/bin/docker ps -a --format '{{json .}}' ; git --version" ,no-pty,no-X11-forwarding,no-port-forwarding ssh-ed25519 AAAA...
-   ```
-   (The actual command run is generated dynamically by this platform - see
-   `internal/discovery/remote_script.go` - the forced-command restriction
-   above is a defense-in-depth example; a full solution grants exactly the
-   `docker`/`git`/`grep` calls the script needs and nothing else. Review the
-   script before relaxing this.)
-3. **Get the host's SSH public key fingerprint** so the connection is pinned
-   instead of trust-on-first-use:
-   ```sh
-   ssh-keyscan -t ed25519 parkee-agent-automation   # copy the ssh-ed25519 AAAA... line
-   ```
-4. **On the staging server** (where this platform runs), place the private
-   key where the container can read it read-only, e.g. `./secrets/automation_id_ed25519`,
-   and mount it in `docker-compose.yml`:
-   ```yaml
-   volumes:
-     - ./secrets/automation_id_ed25519:/app/secrets/automation_id_ed25519:ro
-   ```
-5. Fill in `config.json`:
-   ```json
-   "automationHost": {
-     "enabled": true,
-     "addr": "parkee-agent-automation:22",
-     "user": "platform-readonly",
-     "privateKeyPath": "/app/secrets/automation_id_ed25519",
-     "hostKey": "ssh-ed25519 AAAA...",
-     "refreshSeconds": 900,
-     "discovery": { "appRoot": "/data/app", "slotDirPrefix": "agent-", "services": ["watersheep", "fisherman"] }
-   }
-   ```
-6. Restart (`docker compose up -d --build`) and check the dashboard - if the
-   host is unreachable, the section shows a warning banner instead of
-   breaking the rest of the page (same resilience pattern as local discovery).
+- Saved envs live in the `environments` table. Envs no longer found are
+  marked `missing` (never deleted, so booking/deploy history keeps its names)
+  and drop out of the dashboard, booking and deploy lists.
+- If one server can't be reached during discovery, its envs are left as they
+  are; they are never marked missing because of a failed connection.
+- On first start with an empty table, the inventory is seeded from
+  `/data/app/agent-*/.env` (`WATERSHEEP_PORT`/`FISHERMAN_PORT`) and
+  `automation.slots`, so the dashboard isn't empty before the first run.
+- Deploys to automation envs use the `deploy-*-automation` Jenkins jobs and
+  skip the deploy booking check.
 
-### Why SSH (vs. a second platform instance or an HTTP exporter)
+### SSH to staging-automation
 
-The same SSH channel is the intended path for a later feature (stopping an
-idle automation env) - one secured connection does both read (now) and write
-(later), instead of standing up separate infrastructure for each.
+```json
+"automation": {
+  "host": "10.20.3.142",
+  "containerInfix": "automation-",
+  "ssh": { "user": "parkee", "port": 22, "keyPath": "/app/secrets/automation_key" }
+}
+```
+
+- The platform runs the system `ssh` client (installed in the image) with
+  `BatchMode=yes`, so it never prompts; a missing/wrong key shows up as an
+  error on the discovery page.
+- `keyPath` is the private key **file** that can `ssh parkee@10.20.3.142`
+  from the staging server. `docker-compose.yml` mounts
+  `/home/parkee/.ssh/id_rsa` there read-only; change the left side if your
+  key has a different name (e.g. `id_ed25519`). Never put key contents in
+  `config.json`.
+- The automation server's host key is learned on the first connection and
+  pinned in `data/known_hosts`; if it ever changes, discovery fails until
+  that file is removed.
+- Containers on that server are named `<service>-automation-<env>`
+  (`containerInfix`). Other containers (kafka, postgres, ...) are ignored.
 
 ## Endpoints
 

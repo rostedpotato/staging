@@ -183,6 +183,8 @@ func (s *Server) handleAdminUserStatus(w http.ResponseWriter, r *http.Request) {
 
 type slotRow struct {
 	Name   string
+	Server string
+	Status string
 	Hidden bool
 }
 
@@ -198,8 +200,10 @@ func (s *Server) handleAdminSlots(w http.ResponseWriter, r *http.Request) {
 	u := auth.UserFrom(r.Context())
 	hidden, _ := s.st.HiddenSlots()
 	var rows []slotRow
-	for _, name := range s.allSlotNames() {
-		rows = append(rows, slotRow{Name: name, Hidden: hidden[name] || s.cfg.Hidden(name)})
+	envs, _ := s.st.ListEnvironments("")
+	for _, e := range envs {
+		rows = append(rows, slotRow{Name: e.Name, Server: e.Server, Status: e.Status,
+			Hidden: hidden[e.Name] || s.cfg.Hidden(e.Name)})
 	}
 	s.render(w, "admin_slots.html", adminSlotsPage{
 		Username: u.Username,

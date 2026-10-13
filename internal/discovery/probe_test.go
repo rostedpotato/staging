@@ -7,59 +7,57 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"parkee/staging-platform/internal/config"
+	"parkee/staging-platform/internal/store"
 )
 
-func portOf(t *testing.T, addr string) string {
+func portNum(t *testing.T, srv *httptest.Server) int {
 	t.Helper()
-	_, p, err := net.SplitHostPort(addr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return p
+	return srv.Listener.Addr().(*net.TCPAddr).Port
 }
 
-func TestScanProbesActuator(t *testing.T) {
-	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+func upServer(t *testing.T, version string) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/actuator/info" {
 			http.NotFound(w, r)
 			return
 		}
-		w.Write([]byte(`{"build":{"version":"v3.10.0-abc"}}`))
+		w.Write([]byte(`{"build":{"version":"` + version + `"}}`))
 	}))
-	defer up.Close()
+	t.Cleanup(srv.Close)
+	return srv
+}
 
-	// A port that was just closed: connection refused.
-	closed := httptest.NewServer(http.NotFoundHandler())
-	closedPort := portOf(t, closed.Listener.Addr().String())
-	closed.Close()
+// closedPort returns a port that was just released: connection refused.
+func closedPort(t *testing.T) int {
+	t.Helper()
+	srv := httptest.NewServer(http.NotFoundHandler())
+	p := portNum(t, srv)
+	srv.Close()
+	return p
+}
 
-	root := t.TempDir()
-	slotDir := filepath.Join(root, "agent-dev-01")
-	if err := os.MkdirAll(filepath.Join(slotDir, "parkee-agent-backoffice"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	env := "WATERSHEEP_PORT=" + portOf(t, up.Listener.Addr().String()) + "\nFISHERMAN_PORT=" + closedPort + "\n"
-	if err := os.WriteFile(filepath.Join(slotDir, ".env"), []byte(env), 0o644); err != nil {
-		t.Fatal(err)
-	}
-
+func TestStatusStagingProbesStoredPorts(t *testing.T) {
+	up := upServer(t, "v3.10.0-abc")
 	d := New(config.Discovery{
-		AppRoot: root, SlotDirPrefix: "agent-", RepoSubdir: "parkee-agent-backoffice",
+		AppRoot: t.TempDir(), SlotDirPrefix: "agent-", RepoSubdir: "parkee-agent-backoffice",
 		NginxSitesDir: t.TempDir(), Services: []string{"watersheep", "fisherman"},
 		ProbeHost: "127.0.0.1",
 	})
-	slots, err := d.Scan(context.Background(), nil)
-	if err != nil || len(slots) != 1 {
-		t.Fatalf("scan: slots=%d err=%v", len(slots), err)
+	slots := d.StatusStaging(context.Background(), []store.Environment{
+		{Name: "dev-01", Ports: map[string]int{"watersheep": portNum(t, up), "fisherman": closedPort(t)}},
+	})
+	if len(slots) != 1 {
+		t.Fatalf("want 1 slot, got %d", len(slots))
 	}
 	byName := map[string]Service{}
 	for _, s := range slots[0].Services {
 		byName[s.Name] = s
 	}
-
 	if ws := byName["watersheep"]; ws.State != "running" || ws.RunningVersion != "v3.10.0-abc" {
 		t.Fatalf("watersheep should be running with version, got %+v", ws)
 	}
@@ -71,18 +69,160 @@ func TestScanProbesActuator(t *testing.T) {
 	}
 }
 
-func TestMissingPortIsDown(t *testing.T) {
-	root := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, "agent-x"), 0o755); err != nil {
+func TestStatusAutomationMissingPort(t *testing.T) {
+	up := upServer(t, "v2.95.4-988a036d9c")
+	d := New(config.Discovery{Services: []string{"watersheep", "fisherman"}})
+	slots := d.StatusAutomation(context.Background(), "127.0.0.1", []store.Environment{
+		{Name: "0vt", Ports: map[string]int{"watersheep": portNum(t, up), "fisherman": portNum(t, up)}},
+		{Name: "0pv", Ports: map[string]int{"watersheep": portNum(t, up)}},
+	})
+	if got := slots[1].Overall(); got != "healthy" { // sorted: 0pv, 0vt
+		t.Fatalf("0vt should be healthy, got %q", got)
+	}
+	if got := slots[0].Overall(); got != "down" {
+		t.Fatalf("0pv lacks a fisherman port, want down, got %q", got)
+	}
+	if s := slots[0].Services[1].Status; s != "no port found by discovery" {
+		t.Fatalf("missing port status = %q", s)
+	}
+}
+
+// Real `docker ps --format '{{.Names}}|{{.Ports}}'` lines from both servers.
+const stagingPs = `staging-platform|0.0.0.0:8088->8088/tcp, :::8088->8088/tcp
+watersheep-development-04|0.0.0.0:9011->9005/tcp, :::9011->9005/tcp
+fisherman-development-04|0.0.0.0:4011->8888/tcp, :::4011->8888/tcp
+kafka-development-04|0.0.0.0:10011->9092/tcp, :::10011->9092/tcp
+migration-service-development-09|
+watersheep-06r|0.0.0.0:9007->9005/tcp, :::9007->9005/tcp
+fisherman-06r|0.0.0.0:4007->8888/tcp, :::4007->8888/tcp
+kafka-06r|10.20.1.12:10007->9092/tcp
+fisherman-development-10|0.0.0.0:4021->8888/tcp, :::4021->8888/tcp
+watersheep-development-10|0.0.0.0:9021->9005/tcp, :::9021->9005/tcp
+watersheep-ho|`
+
+const automationPs = `watersheep-automation-0vt|0.0.0.0:9004->9005/tcp, :::9004->9005/tcp
+fisherman-automation-0vt|0.0.0.0:4004->8888/tcp, :::4004->8888/tcp
+kafka-automation-0vt|0.0.0.0:10004->9092/tcp, :::10004->9092/tcp
+watersheep-automation-0pv|0.0.0.0:9000->9005/tcp, :::9000->9005/tcp
+fisherman-automation-0pv|0.0.0.0:4000->8888/tcp, :::4000->8888/tcp
+postgres-automation-0pv|0.0.0.0:5000->5432/tcp, :::5000->5432/tcp`
+
+func envMap(envs []store.EnvChange) map[string]map[string]int {
+	m := map[string]map[string]int{}
+	for _, e := range envs {
+		m[e.Name] = e.Ports
+	}
+	return m
+}
+
+func TestParseDockerPsStaging(t *testing.T) {
+	got := envMap(parseDockerPs(stagingPs, store.ServerStaging, "-", []string{"watersheep", "fisherman"}))
+	want := map[string]map[string]int{
+		"development-04": {"watersheep": 9011, "fisherman": 4011},
+		"06r":            {"watersheep": 9007, "fisherman": 4007},
+		"development-10": {"watersheep": 9021, "fisherman": 4021},
+		"ho":             {}, // stopped container: env exists, no published port
+	}
+	if len(got) != len(want) {
+		t.Fatalf("envs = %v, want %v", got, want)
+	}
+	for name, ports := range want {
+		if !samePortMap(got[name], ports) {
+			t.Fatalf("%s ports = %v, want %v", name, got[name], ports)
+		}
+	}
+}
+
+func TestParseDockerPsAutomation(t *testing.T) {
+	got := envMap(parseDockerPs(automationPs, store.ServerAutomation, "-automation-", []string{"watersheep", "fisherman"}))
+	if len(got) != 2 || got["0vt"]["watersheep"] != 9004 || got["0pv"]["fisherman"] != 4000 {
+		t.Fatalf("automation envs = %v", got)
+	}
+}
+
+func samePortMap(a, b map[string]int) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for k, v := range a {
+		if b[k] != v {
+			return false
+		}
+	}
+	return true
+}
+
+// TestDiscoverAutomationOverSSH swaps the ssh binary for a script that checks
+// the arguments it gets and prints canned docker ps output.
+func TestDiscoverAutomationOverSSH(t *testing.T) {
+	dir := t.TempDir()
+	argsFile := filepath.Join(dir, "args")
+	fake := filepath.Join(dir, "ssh")
+	script := "#!/bin/sh\nprintf '%s\\n' \"$@\" > " + argsFile + "\ncat <<'EOF'\n" + automationPs + "\nEOF\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	d := New(config.Discovery{
-		AppRoot: root, SlotDirPrefix: "agent-", RepoSubdir: "r",
-		NginxSitesDir: t.TempDir(), Services: []string{"watersheep"}, ProbeHost: "127.0.0.1",
+	d := New(config.Discovery{Services: []string{"watersheep", "fisherman"}})
+	envs, err := d.DiscoverAutomation(context.Background(), config.Automation{
+		Host: "10.20.3.142", ContainerInfix: "automation-",
+		SSH: config.AutomationSSH{User: "parkee", Port: 22, Bin: fake, KnownHostsPath: filepath.Join(dir, "kh")},
 	})
-	slots, _ := d.Scan(context.Background(), nil)
-	svc := slots[0].Services[0]
-	if svc.State != "down" || svc.Status != "no WATERSHEEP_PORT in .env" {
-		t.Fatalf("unexpected: %+v", svc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(envs) != 2 || envs[0].Server != store.ServerAutomation {
+		t.Fatalf("envs = %+v", envs)
+	}
+	args, _ := os.ReadFile(argsFile)
+	for _, want := range []string{"BatchMode=yes", "parkee@10.20.3.142", "docker ps -a --format '{{.Names}}|{{.Ports}}'"} {
+		if !strings.Contains(string(args), want) {
+			t.Fatalf("ssh args missing %q:\n%s", want, args)
+		}
+	}
+}
+
+func TestDiscoverAutomationSSHFailure(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "ssh")
+	script := "#!/bin/sh\necho 'parkee@10.20.3.142: Permission denied (publickey).' >&2\nexit 255\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	d := New(config.Discovery{Services: []string{"watersheep"}})
+	_, err := d.DiscoverAutomation(context.Background(), config.Automation{
+		Host: "10.20.3.142", ContainerInfix: "automation-",
+		SSH: config.AutomationSSH{User: "parkee", Port: 22, Bin: fake},
+	})
+	if err == nil || !strings.Contains(err.Error(), "Permission denied") {
+		t.Fatalf("want ssh stderr in error, got %v", err)
+	}
+}
+
+func TestDiffEnvironments(t *testing.T) {
+	stored := []store.Environment{
+		{Name: "ho", Server: store.ServerStaging, Ports: map[string]int{"watersheep": 9000}, Status: store.EnvActive},
+		{Name: "06r", Server: store.ServerStaging, Ports: map[string]int{"watersheep": 9007}, Status: store.EnvActive},
+		{Name: "dev-old", Server: store.ServerStaging, Status: store.EnvActive},
+		{Name: "0vt", Server: store.ServerAutomation, Ports: map[string]int{"watersheep": 9004}, Status: store.EnvActive},
+	}
+	found := []store.EnvChange{
+		{Name: "ho", Server: store.ServerStaging, Ports: map[string]int{"watersheep": 9000}},
+		{Name: "06r", Server: store.ServerStaging, Ports: map[string]int{"watersheep": 9017}},
+		{Name: "dev-new", Server: store.ServerStaging, Ports: map[string]int{"watersheep": 9030}},
+	}
+	// Automation was not reachable: 0vt must NOT be reported missing.
+	diff := store.DiffEnvironments(stored, found, map[string]bool{store.ServerStaging: true})
+	kinds := map[string]string{}
+	for _, c := range diff {
+		kinds[c.Name] = c.Kind
+	}
+	want := map[string]string{"ho": "unchanged", "06r": "changed", "dev-new": "new", "dev-old": "missing"}
+	for name, k := range want {
+		if kinds[name] != k {
+			t.Fatalf("%s: kind %q, want %q (all: %v)", name, kinds[name], k, kinds)
+		}
+	}
+	if _, ok := kinds["0vt"]; ok {
+		t.Fatalf("0vt is on an unscanned server and must be left out, got %q", kinds["0vt"])
 	}
 }

@@ -20,12 +20,6 @@ import (
 	"parkee/staging-platform/internal/store"
 )
 
-// scanCacheTTL bounds how often the (relatively expensive: docker ps + git
-// subprocesses per slot) discovery scan actually runs. Dashboard freshness
-// isn't critical here (this isn't a monitoring tool), so a coarse cache
-// keeps repeated page loads/clicks cheap.
-const scanCacheTTL = 5 * time.Minute
-
 //go:embed templates/*.html
 var templatesFS embed.FS
 
@@ -33,35 +27,26 @@ var templatesFS embed.FS
 var staticFS embed.FS
 
 type Server struct {
-	cfg        *config.Config
-	disc       *discovery.Discoverer
-	remoteDisc *discovery.RemoteDiscoverer
-	auth       *auth.Authenticator
-	st         *store.Store
-	deploy     *deploy.Service
-	tmpl       *template.Template
+	cfg    *config.Config
+	disc   *discovery.Discoverer
+	auth   *auth.Authenticator
+	st     *store.Store
+	deploy *deploy.Service
+	tmpl   *template.Template
 
-	// rawScanMu guards the cached, unfiltered discovery result. It's kept
-	// fresh by a background goroutine (see refreshLoop) rather than by
-	// request handlers, so a slow docker/git scan never makes a user wait on
-	// a page click. A failed scan keeps the last good result instead of
-	// replacing it with empty/broken data - rawErr is only surfaced as a
-	// warning banner.
-	rawScanMu sync.RWMutex
-	rawScanAt time.Time
-	rawSlots  []discovery.Slot
-	rawErr    error
+	// statusMu guards the cached status of every known env (staging and
+	// automation). It's refreshed by a background loop (StartStatusLoop) that
+	// only curls /actuator/info, so page loads never wait on it.
+	statusMu         sync.RWMutex
+	statusAt         time.Time
+	stagingStatus    []discovery.Slot
+	automationStatus []discovery.Slot
 
-	// automationScanMu guards the cached automation-host scan (fetched over
-	// SSH, see remote.go). Kept separate from rawScan* so a slow/unreachable
-	// automation host never blocks or taints the local staging scan.
-	automationScanMu sync.RWMutex
-	automationScanAt time.Time
-	automationSlots  []discovery.Slot
-	automationErr    error
+	// discoverMu makes sure only one admin-triggered discovery runs at a time.
+	discoverMu sync.Mutex
 }
 
-func NewServer(cfg *config.Config, disc *discovery.Discoverer, remoteDisc *discovery.RemoteDiscoverer, a *auth.Authenticator, st *store.Store, dep *deploy.Service) (*Server, error) {
+func NewServer(cfg *config.Config, disc *discovery.Discoverer, a *auth.Authenticator, st *store.Store, dep *deploy.Service) (*Server, error) {
 	funcs := template.FuncMap{
 		"fmtTime": func(t time.Time) string {
 			if t.IsZero() {
@@ -80,7 +65,7 @@ func NewServer(cfg *config.Config, disc *discovery.Discoverer, remoteDisc *disco
 	if err != nil {
 		return nil, err
 	}
-	return &Server{cfg: cfg, disc: disc, remoteDisc: remoteDisc, auth: a, st: st, deploy: dep, tmpl: tmpl}, nil
+	return &Server{cfg: cfg, disc: disc, auth: a, st: st, deploy: dep, tmpl: tmpl}, nil
 }
 
 func (s *Server) renderBookings(w http.ResponseWriter, data bookingsPage) {
@@ -123,6 +108,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/admin/users/reset-password", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminUserResetPassword)))
 	mux.Handle("/admin/slots", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminSlots)))
 	mux.Handle("/admin/slots/toggle", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminSlotToggle)))
+	mux.Handle("/admin/discovery", s.auth.RequireAdmin(http.HandlerFunc(s.handleDiscoveryPage)))
+	mux.Handle("/admin/discovery/run", s.auth.RequireAdmin(http.HandlerFunc(s.handleDiscoveryRun)))
+	mux.Handle("/admin/discovery/decide", s.auth.RequireAdmin(http.HandlerFunc(s.handleDiscoveryDecide)))
 
 	mux.Handle("/", s.auth.RequireUser(http.HandlerFunc(s.handleDashboard)))
 
@@ -159,13 +147,12 @@ type pageData struct {
 	HistorySort     string
 	HistorySlotOpts []string
 
-	// Automation* describe the staging-automation host (0pv/0vt/076),
-	// scanned separately over SSH. AutomationEnabled is false when
-	// automationHost.enabled is false in config, so the section is hidden.
+	// Automation* describe the staging-automation envs (0pv/0vt/076), listed
+	// in config and checked by curl. AutomationEnabled is false when no
+	// automation slots are configured, so the section is hidden.
 	AutomationEnabled   bool
 	AutomationSlots     []slotView
 	AutomationScannedAt string
-	AutomationError     string
 }
 
 // slotView pairs a discovered slot with its current active booking (if any).
@@ -174,121 +161,82 @@ type slotView struct {
 	Booking *store.Reservation
 }
 
-// StartBackgroundScan runs an initial discovery scan synchronously (so the
-// first page load has data) and then refreshes it every scanCacheTTL in a
-// background goroutine until ctx is cancelled. Request handlers only ever
-// read the cached result (see rawScan), so a slow docker/git scan on a busy
-// host never blocks a user's click.
-func (s *Server) StartBackgroundScan(ctx context.Context) {
-	s.refreshScan(ctx)
+// StartStatusLoop checks every known env once synchronously (so the first
+// page load has data) and then every discovery.statusSeconds until ctx is
+// cancelled. It only curls /actuator/info - finding which envs exist is the
+// separate, admin-triggered discovery.
+func (s *Server) StartStatusLoop(ctx context.Context) {
+	s.refreshStatus(ctx)
 	go func() {
-		t := time.NewTicker(scanCacheTTL)
+		t := time.NewTicker(time.Duration(s.cfg.Discovery.StatusSeconds) * time.Second)
 		defer t.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
 			case <-t.C:
-				s.refreshScan(ctx)
-			}
-		}
-	}()
-
-	if !s.cfg.AutomationHost.Enabled {
-		return
-	}
-	s.refreshAutomationScan(ctx)
-	go func() {
-		interval := time.Duration(s.cfg.AutomationHost.RefreshSeconds) * time.Second
-		t := time.NewTicker(interval)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				s.refreshAutomationScan(ctx)
+				s.refreshStatus(ctx)
 			}
 		}
 	}()
 }
 
-// refreshAutomationScan scans the staging-automation host over SSH and
-// updates the cache. Like refreshScan, a failed/unreachable host keeps the
-// last good result instead of blanking the section - the error is only
-// surfaced as a banner when there's nothing cached to show instead.
-func (s *Server) refreshAutomationScan(ctx context.Context) {
-	slots, err := s.remoteDisc.Scan(ctx)
-	s.automationScanMu.Lock()
-	defer s.automationScanMu.Unlock()
-	s.automationErr = err
-	s.automationScanAt = time.Now()
-	if len(slots) > 0 || err == nil {
-		s.automationSlots = slots
+// refreshStatus re-checks every active env in the inventory and swaps the
+// cached result in one go.
+func (s *Server) refreshStatus(ctx context.Context) {
+	staging, _ := s.st.ListEnvironments(store.ServerStaging)
+	automation, _ := s.st.ListEnvironments(store.ServerAutomation)
+	stagingSlots := s.disc.StatusStaging(ctx, activeOnly(staging))
+	automationSlots := s.disc.StatusAutomation(ctx, s.cfg.Automation.Host, activeOnly(automation))
+
+	s.statusMu.Lock()
+	defer s.statusMu.Unlock()
+	s.statusAt = time.Now()
+	s.stagingStatus = stagingSlots
+	s.automationStatus = automationSlots
+}
+
+func activeOnly(envs []store.Environment) []store.Environment {
+	out := envs[:0:0]
+	for _, e := range envs {
+		if e.Status == store.EnvActive {
+			out = append(out, e)
+		}
 	}
+	return out
 }
 
-// automationScan returns the last cached automation-host scan result.
-func (s *Server) automationScan() ([]discovery.Slot, time.Time, error) {
-	s.automationScanMu.RLock()
-	defer s.automationScanMu.RUnlock()
-	return s.automationSlots, s.automationScanAt, s.automationErr
+// cachedStatus returns the last status snapshot.
+func (s *Server) cachedStatus() (staging, automation []discovery.Slot, at time.Time) {
+	s.statusMu.RLock()
+	defer s.statusMu.RUnlock()
+	return s.stagingStatus, s.automationStatus, s.statusAt
 }
 
-// refreshScan runs discovery and updates the cache. A scan can return slots
-// AND an error at once: the slot list comes from disk (always cheap/reliable)
-// while the error usually means only `docker ps` failed (container state is
-// stale). So we keep any slots we got - even partial data (names, git info,
-// domains) beats a blank dashboard - and only fall back to the previous cache
-// when this scan produced nothing at all.
-func (s *Server) refreshScan(ctx context.Context) {
-	slots, err := s.disc.Scan(ctx, nil)
-	s.rawScanMu.Lock()
-	defer s.rawScanMu.Unlock()
-	s.rawErr = err
-	s.rawScanAt = time.Now()
-	if len(slots) > 0 {
-		s.rawSlots = slots
-	}
-}
-
-// rawScan returns the last cached, unfiltered discovery result.
-func (s *Server) rawScan() ([]discovery.Slot, error) {
-	s.rawScanMu.RLock()
-	defer s.rawScanMu.RUnlock()
-	return s.rawSlots, s.rawErr
-}
-
-// lastScanAt returns when the cache was last refreshed.
-func (s *Server) lastScanAt() time.Time {
-	s.rawScanMu.RLock()
-	defer s.rawScanMu.RUnlock()
-	return s.rawScanAt
-}
-
-// scan lists slots, hiding those hidden by config OR by the in-app admin
-// setting. The hidden-slot filter itself is always applied fresh (cheap,
-// DB-backed) on top of the cached raw scan so admin show/hide toggles are
-// reflected immediately.
-func (s *Server) scan() ([]discovery.Slot, error) {
-	slots, err := s.rawScan()
+// visible drops slots hidden by config or by the in-app admin setting. The
+// filter is applied on every read so show/hide toggles take effect at once.
+func (s *Server) visible(slots []discovery.Slot) []discovery.Slot {
 	dbHidden, _ := s.st.HiddenSlots()
-	visible := make([]discovery.Slot, 0, len(slots))
+	out := make([]discovery.Slot, 0, len(slots))
 	for _, sl := range slots {
 		if s.cfg.Hidden(sl.Name) || dbHidden[sl.Name] {
 			continue
 		}
-		visible = append(visible, sl)
+		out = append(out, sl)
 	}
-	return visible, err
+	return out
 }
 
-// allSlotNames returns every discovered slot (including hidden), for admin UI.
-func (s *Server) allSlotNames() []string {
-	slots, _ := s.rawScan()
-	names := make([]string, 0, len(slots))
-	for _, sl := range slots {
-		names = append(names, sl.Name)
+// envNames lists active env names on one server, hidden ones excluded.
+func (s *Server) envNames(server string) []string {
+	envs, _ := s.st.ListEnvironments(server)
+	dbHidden, _ := s.st.HiddenSlots()
+	var names []string
+	for _, e := range envs {
+		if e.Status != store.EnvActive || s.cfg.Hidden(e.Name) || dbHidden[e.Name] {
+			continue
+		}
+		names = append(names, e.Name)
 	}
 	return names
 }
@@ -299,7 +247,8 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	u := auth.UserFrom(r.Context())
-	slots, err := s.scan()
+	stagingSlots, automationSlots, statusAt := s.cachedStatus()
+	slots := s.visible(stagingSlots)
 
 	// Attach the current active booking per slot for the "who's using it" view.
 	active, _ := s.st.ListActive()
@@ -329,8 +278,8 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	data := pageData{
 		Slots:           views,
-		ScannedAt:       s.lastScanAt().Local().Format("2006-01-02 15:04:05"),
-		RefreshSeconds:  s.cfg.Discovery.RefreshSeconds,
+		ScannedAt:       statusAt.Local().Format("2006-01-02 15:04:05"),
+		RefreshSeconds:  s.cfg.Discovery.StatusSeconds,
 		BookingHistory:  history,
 		HistorySlot:     historySlot,
 		HistorySort:     historySort,
@@ -340,26 +289,14 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		data.Username = u.Username
 		data.IsAdmin = u.IsAdmin()
 	}
-	// Only surface a scan error when we have nothing to show. A transient
-	// failure (e.g. `docker ps` timing out on a busy host) while cached data
-	// is still displayed shouldn't alarm the user - the shown data is fine.
-	if err != nil && len(views) == 0 {
-		data.Error = err.Error()
-	}
-
-	// Staging-automation has no booking system yet, so its views never carry
-	// a Booking - the dashboard section just shows status/version/domains.
-	if data.AutomationEnabled = s.cfg.AutomationHost.Enabled; data.AutomationEnabled {
-		autoSlots, autoAt, autoErr := s.automationScan()
+	autoSlots := s.visible(automationSlots)
+	if data.AutomationEnabled = len(autoSlots) > 0; data.AutomationEnabled {
 		autoViews := make([]slotView, 0, len(autoSlots))
 		for _, sl := range autoSlots {
-			autoViews = append(autoViews, slotView{Slot: sl})
+			autoViews = append(autoViews, slotView{Slot: sl, Booking: current[sl.Name]})
 		}
 		data.AutomationSlots = autoViews
-		data.AutomationScannedAt = autoAt.Local().Format("2006-01-02 15:04:05")
-		if autoErr != nil && len(autoViews) == 0 {
-			data.AutomationError = autoErr.Error()
-		}
+		data.AutomationScannedAt = data.ScannedAt
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := s.tmpl.ExecuteTemplate(w, "dashboard.html", data); err != nil {
@@ -392,15 +329,12 @@ func (s *Server) handleAudit(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAPISlots(w http.ResponseWriter, r *http.Request) {
-	slots, err := s.scan()
+	staging, automation, at := s.cachedStatus()
 	w.Header().Set("Content-Type", "application/json")
-	if err != nil {
-		w.WriteHeader(http.StatusOK) // partial data is still useful
-	}
 	json.NewEncoder(w).Encode(map[string]any{
-		"scannedAt": s.lastScanAt().Format(time.RFC3339),
-		"slots":     slots,
-		"error":     errStr(err),
+		"checkedAt":  at.Format(time.RFC3339),
+		"staging":    s.visible(staging),
+		"automation": s.visible(automation),
 	})
 }
 

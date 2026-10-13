@@ -20,11 +20,13 @@
     <p class="hint">Hidden slots are removed from the dashboard, booking, and deploy
       lists. Use this for legacy/dead slots.</p>
     <table class="audit">
-      <thead><tr><th>Slot</th><th>Visibility</th><th>Action</th></tr></thead>
+      <thead><tr><th>Slot</th><th>Server</th><th>Status</th><th>Visibility</th><th>Action</th></tr></thead>
       <tbody>
         {{range .Slots}}
           <tr>
             <td>{{.Name}}</td>
+            <td>{{.Server}}</td>
+            <td>{{.Status}}</td>
             <td>{{if .Hidden}}<span class="tag st-failed">hidden</span>{{else}}<span class="tag st-success">visible</span>{{end}}</td>
             <td>
               <form method="post" action="/admin/slots/toggle">
@@ -40,7 +42,7 @@
             </td>
           </tr>
         {{else}}
-          <tr><td colspan="3" class="empty">No slots discovered.</td></tr>
+          <tr><td colspan="5" class="empty">No envs yet. Run discovery from the Discovery page.</td></tr>
         {{end}}
       </tbody>
     </table>

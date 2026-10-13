@@ -8,10 +8,10 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 
 	"parkee/staging-platform/internal/config"
+	"parkee/staging-platform/internal/store"
 )
 
 type Discoverer struct {
@@ -20,46 +20,46 @@ type Discoverer struct {
 
 func New(cfg config.Discovery) *Discoverer { return &Discoverer{cfg: cfg} }
 
-// Scan returns the current view of all slots. It never mutates the host.
-func (d *Discoverer) Scan(ctx context.Context, hidden func(string) bool) ([]Slot, error) {
-	slotNames := d.slotDirs()
-	domains := domainsBySlot(d.cfg.NginxSitesDir, d.cfg.AppRoot, d.cfg.SlotDirPrefix, slotNames)
+// StatusStaging builds dashboard cards for the given staging envs: ports come
+// from the stored inventory (set by an admin-run discovery), git/nginx/WBO
+// info is read from the slot directory on disk, and every service port is
+// curled for up/down. It never mutates the host.
+func (d *Discoverer) StatusStaging(ctx context.Context, envs []store.Environment) []Slot {
+	names := make([]string, 0, len(envs))
+	for _, e := range envs {
+		names = append(names, e.Name)
+	}
+	domains := domainsBySlot(d.cfg.NginxSitesDir, d.cfg.AppRoot, d.cfg.SlotDirPrefix, names)
 
-	var slots []Slot
-	for _, name := range slotNames {
-		if hidden != nil && hidden(name) {
-			continue
-		}
-		dir := filepath.Join(d.cfg.AppRoot, d.cfg.SlotDirPrefix+name)
+	slots := make([]Slot, 0, len(envs))
+	for _, e := range envs {
+		dir := filepath.Join(d.cfg.AppRoot, d.cfg.SlotDirPrefix+e.Name)
 		repoDir := filepath.Join(dir, d.cfg.RepoSubdir)
-
 		branch, commit, commitTime, version := gitInfo(ctx, repoDir)
-
-		services := d.servicesFor(name, dir)
-		services = append(services, wboService(repoDir))
-
-		slot := Slot{
-			Name:       name,
+		services := d.portServices(e.Ports)
+		for i := range services {
+			services[i].Container = services[i].Name + "-" + e.Name
+		}
+		slots = append(slots, Slot{
+			Name:       e.Name,
 			Dir:        dir,
-			Domains:    domains[name],
+			Domains:    domains[e.Name],
 			Branch:     branch,
 			Commit:     commit,
 			Version:    version,
 			CommitTime: commitTime,
-			Services:   services,
-		}
-		slots = append(slots, slot)
+			Services:   append(services, wboService(repoDir)),
+		})
 	}
-
 	sort.Slice(slots, func(i, j int) bool { return slots[i].Name < slots[j].Name })
-	d.probeServices(ctx, slots)
-	return slots, nil
+	probeServices(ctx, d.cfg.ProbeHost, slots)
+	return slots
 }
 
 // probeServices curls /actuator/info on every port-backed service across all
 // slots concurrently, so the scan costs one probe timeout, not N sequential
 // ones. A 2xx answer is "running"; anything else is "down".
-func (d *Discoverer) probeServices(ctx context.Context, slots []Slot) {
+func probeServices(ctx context.Context, host string, slots []Slot) {
 	var wg sync.WaitGroup
 	for i := range slots {
 		for j := range slots[i].Services {
@@ -70,7 +70,7 @@ func (d *Discoverer) probeServices(ctx context.Context, slots []Slot) {
 			wg.Add(1)
 			go func(svc *Service) {
 				defer wg.Done()
-				res := probeActuator(ctx, d.cfg.ProbeHost, svc.HostPort)
+				res := probeActuator(ctx, host, svc.HostPort)
 				svc.Status = res.Status
 				if res.Up {
 					svc.State, svc.Health = "running", "healthy"
@@ -80,49 +80,6 @@ func (d *Discoverer) probeServices(ctx context.Context, slots []Slot) {
 		}
 	}
 	wg.Wait()
-}
-
-// slotDirs lists slot names by reading <appRoot>/<slotPrefix>* directories.
-// Backup dirs (suffix -bak or containing "_bak") are ignored.
-func (d *Discoverer) slotDirs() []string {
-	entries, err := os.ReadDir(d.cfg.AppRoot)
-	if err != nil {
-		return nil
-	}
-	var names []string
-	for _, e := range entries {
-		if !e.IsDir() || !strings.HasPrefix(e.Name(), d.cfg.SlotDirPrefix) {
-			continue
-		}
-		name := strings.TrimPrefix(e.Name(), d.cfg.SlotDirPrefix)
-		if strings.HasSuffix(name, "-bak") || strings.Contains(name, "_bak") {
-			continue
-		}
-		names = append(names, name)
-	}
-	return names
-}
-
-// servicesFor builds one Service per configured name, with its port read from
-// the slot's .env (<SERVICE>_PORT). Services start as "down"; probeServices
-// flips them to "running" once /actuator/info answers.
-func (d *Discoverer) servicesFor(slot, slotDir string) []Service {
-	var out []Service
-	for _, svcName := range d.cfg.Services {
-		svc := Service{
-			Name:      svcName,
-			Container: svcName + "-" + slot,
-			Found:     true,
-			State:     "down",
-			Health:    "none",
-			HostPort:  slotPort(slotDir, svcName),
-		}
-		if svc.HostPort == "" {
-			svc.Status = "no " + strings.ToUpper(svcName) + "_PORT in .env"
-		}
-		out = append(out, svc)
-	}
-	return out
 }
 
 // wboService reports on WBO (Web Backoffice), which unlike watersheep/

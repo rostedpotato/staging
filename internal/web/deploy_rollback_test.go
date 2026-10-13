@@ -64,12 +64,13 @@ func newDeployTestServer(t *testing.T, slots ...string) (*httptest.Server, *stor
 
 	a := auth.New(cfg, st)
 	disc := discovery.New(cfg.Discovery)
-	remoteDisc := discovery.NewRemote(cfg.AutomationHost)
 	dep := deploy.New(cfg, st, fakeProvider{})
-	srv, err := NewServer(cfg, disc, remoteDisc, a, st, dep)
+	srv, err := NewServer(cfg, disc, a, st, dep)
 	if err != nil {
 		t.Fatal(err)
 	}
+	seedTestEnvs(t, st, slots...)
+	srv.refreshStatus(context.Background())
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, st

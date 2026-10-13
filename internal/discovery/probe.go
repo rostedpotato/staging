@@ -1,7 +1,6 @@
 package discovery
 
 import (
-	"bufio"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,10 +8,6 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"os"
-	"path/filepath"
-	"strconv"
-	"strings"
 	"syscall"
 	"time"
 )
@@ -69,33 +64,4 @@ func probeReason(err error) string {
 	default:
 		return "unreachable"
 	}
-}
-
-// slotPort reads the host-published port of a service from the slot's own
-// .env, e.g. WATERSHEEP_PORT=9020 for watersheep. Returns "" if missing or
-// not a valid port.
-func slotPort(slotDir, service string) string {
-	v := envValue(filepath.Join(slotDir, ".env"), strings.ToUpper(service)+"_PORT")
-	n, err := strconv.Atoi(v)
-	if err != nil || n < 1 || n > 65535 {
-		return ""
-	}
-	return strconv.Itoa(n)
-}
-
-// envValue returns the value of KEY in a dotenv-style file, or "".
-func envValue(path, key string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	for sc.Scan() {
-		k, v, ok := strings.Cut(strings.TrimSpace(sc.Text()), "=")
-		if ok && strings.TrimSpace(k) == key {
-			return strings.Trim(strings.TrimSpace(v), `"'`)
-		}
-	}
-	return ""
 }

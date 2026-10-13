@@ -19,10 +19,25 @@ import (
 	"parkee/staging-platform/internal/store"
 )
 
+// testConfig holds the few knobs individual tests override.
+type testConfig struct {
+	dockerBin string
+	sshBin    string
+}
+
 // newTestServer builds the full HTTP stack with a temp DB. Optional slot
-// names are seeded as discoverable slot dirs under AppRoot.
+// names are seeded as slot dirs under AppRoot and as active staging envs.
 func newTestServer(t *testing.T, slots ...string) (*httptest.Server, *store.Store) {
 	t.Helper()
+	return newTestServerWith(t, nil, slots...)
+}
+
+func newTestServerWith(t *testing.T, opt func(*testConfig), slots ...string) (*httptest.Server, *store.Store) {
+	t.Helper()
+	tc := testConfig{dockerBin: "true", sshBin: "/bin/false"}
+	if opt != nil {
+		opt(&tc)
+	}
 	st, err := store.Open(t.TempDir() + "/w.db")
 	if err != nil {
 		t.Fatal(err)
@@ -43,20 +58,39 @@ func newTestServer(t *testing.T, slots ...string) (*httptest.Server, *store.Stor
 	cfg.Discovery.SlotDirPrefix = "agent-"
 	cfg.Discovery.RepoSubdir = "parkee-agent-backoffice"
 	cfg.Discovery.NginxSitesDir = t.TempDir()
-	cfg.Discovery.DockerBin = "true"
+	cfg.Discovery.DockerBin = tc.dockerBin
+	cfg.Discovery.Services = []string{"watersheep", "fisherman"}
+	cfg.Discovery.ProbeHost = "127.0.0.1"
+	cfg.Automation = config.Automation{
+		Host: "127.0.0.1", ContainerInfix: "automation-",
+		SSH: config.AutomationSSH{User: "parkee", Port: 22, Bin: tc.sshBin},
+	}
 
 	a := auth.New(cfg, st)
 	disc := discovery.New(cfg.Discovery)
-	remoteDisc := discovery.NewRemote(cfg.AutomationHost)
 	dep := deploy.New(cfg, st, jenkins.New("", "", ""))
-	srv, err := NewServer(cfg, disc, remoteDisc, a, st, dep)
+	srv, err := NewServer(cfg, disc, a, st, dep)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.refreshScan(context.Background()) // populate the scan cache synchronously for tests
+	seedTestEnvs(t, st, slots...)
+	srv.refreshStatus(context.Background())
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts, st
+}
+
+// seedTestEnvs registers slots as active staging envs, the way an admin
+// saving a discovery run would.
+func seedTestEnvs(t *testing.T, st *store.Store, slots ...string) {
+	t.Helper()
+	var changes []store.EnvChange
+	for _, name := range slots {
+		changes = append(changes, store.EnvChange{Name: name, Server: store.ServerStaging, Kind: "new"})
+	}
+	if err := st.ApplyEnvChanges(changes); err != nil {
+		t.Fatal(err)
+	}
 }
 
 const testFinalPassword = "FinalPassw0rd!"

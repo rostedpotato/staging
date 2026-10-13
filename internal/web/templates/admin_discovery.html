@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Discovery — Staging Platform</title>
+  {{if .Draft}}{{if eq .Draft.Status "running"}}<meta http-equiv="refresh" content="5">{{end}}{{end}}
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <h1>Env discovery</h1>
+    {{template "navlinks" .}}
+  </div>
+  {{if .Notice}}<div class="banner ok">{{.Notice}}</div>{{end}}
+  {{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
+</header>
+<main>
+  <section class="panel">
+    <h2>Run discovery</h2>
+    <p class="hint">Finds which envs exist and which ports watersheep/fisherman use, by running
+      <code>docker ps</code> on staging (locally) and on staging-automation
+      (<code>ssh {{if .AutomationHost}}{{.AutomationHost}}{{else}}(automation.host not set){{end}}</code>).
+      This is heavy on both servers, so it only runs when you press the button.
+      Nothing changes until you review the result and press <b>Save</b>.</p>
+    {{if .Draft}}
+      <p class="hint">A run is {{if eq .Draft.Status "running"}}in progress{{else}}waiting for review below{{end}}; start a new one after it is saved or discarded.</p>
+    {{else}}
+      <form method="post" action="/admin/discovery/run" class="bookform">
+        <label>Servers
+          <select name="servers">
+            <option value="all">Staging + Staging Automation</option>
+            <option value="staging">Staging only</option>
+            <option value="automation">Staging Automation only</option>
+          </select>
+        </label>
+        <button type="submit" class="btn">Run discovery</button>
+      </form>
+    {{end}}
+  </section>
+
+  {{with .Draft}}
+  <section class="panel">
+    <h2>Run #{{.ID}} by {{.StartedBy}} — <span class="tag st-{{if eq .Status "running"}}running{{else}}queued{{end}}">{{.Status}}</span></h2>
+    {{if eq .Status "running"}}
+      <p class="hint">Running docker ps on: {{range $i, $s := .Servers}}{{if $i}}, {{end}}{{$s}}{{end}}. This page refreshes every 5 seconds.</p>
+    {{else}}
+      {{range $server, $err := .Result.Errors}}
+        <div class="banner error">{{$server}} failed: {{$err}} — envs on this server are left as they are (not marked missing).</div>
+      {{end}}
+      <table class="audit">
+        <thead><tr><th>Env</th><th>Server</th><th>Change</th><th>Ports before</th><th>Ports found</th></tr></thead>
+        <tbody>
+          {{range .Result.Changes}}
+            <tr>
+              <td><b>{{.Name}}</b></td>
+              <td>{{.Server}}</td>
+              <td><span class="tag {{if eq .Kind "new" "back"}}st-success{{else if eq .Kind "missing"}}st-failed{{else if eq .Kind "changed"}}st-running{{end}}">{{.Kind}}</span></td>
+              <td>{{range $svc, $p := .OldPorts}}{{$svc}}:{{$p}} {{else}}—{{end}}</td>
+              <td>{{range $svc, $p := .Ports}}{{$svc}}:{{$p}} {{else}}—{{end}}</td>
+            </tr>
+          {{else}}
+            <tr><td colspan="5" class="empty">No envs found.</td></tr>
+          {{end}}
+        </tbody>
+      </table>
+      <p class="hint"><b>new</b>/<b>back</b> = will be added as active · <b>changed</b> = ports will be updated ·
+        <b>missing</b> = not found any more, will be hidden from dashboard/booking/deploy (history is kept) ·
+        <b>unchanged</b> = no write.</p>
+      <div class="actions">
+        <form method="post" action="/admin/discovery/decide" style="display:inline">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <input type="hidden" name="action" value="apply">
+          <button type="submit" class="btn small">Save</button>
+        </form>
+        <form method="post" action="/admin/discovery/decide" style="display:inline">
+          <input type="hidden" name="id" value="{{.ID}}">
+          <input type="hidden" name="action" value="discard">
+          <button type="submit" class="btn small danger">Discard</button>
+        </form>
+      </div>
+    {{end}}
+  </section>
+  {{end}}
+
+  <section class="panel">
+    <h2>Known envs</h2>
+    <table class="audit">
+      <thead><tr><th>Env</th><th>Server</th><th>Status</th><th>Ports</th><th>Last seen</th></tr></thead>
+      <tbody>
+        {{range .Envs}}
+          <tr>
+            <td>{{.Name}}</td>
+            <td>{{.Server}}</td>
+            <td><span class="tag {{if eq .Status "active"}}st-success{{else}}st-failed{{end}}">{{.Status}}</span></td>
+            <td>{{range $svc, $p := .Ports}}{{$svc}}:{{$p}} {{else}}—{{end}}</td>
+            <td>{{.LastSeen}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="5" class="empty">No envs yet. Run discovery and save the result.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+
+  <section class="panel">
+    <h2>Recent runs</h2>
+    <table class="audit">
+      <thead><tr><th>#</th><th>By</th><th>Servers</th><th>Status</th><th>Started</th><th>Decided by</th><th>Error</th></tr></thead>
+      <tbody>
+        {{range .Recent}}
+          <tr>
+            <td>{{.ID}}</td>
+            <td>{{.StartedBy}}</td>
+            <td>{{range $i, $s := .Servers}}{{if $i}}, {{end}}{{$s}}{{end}}</td>
+            <td><span class="tag">{{.Status}}</span></td>
+            <td>{{.StartedAt}}</td>
+            <td>{{.DecidedBy}}</td>
+            <td>{{.Error}}</td>
+          </tr>
+        {{else}}
+          <tr><td colspan="7" class="empty">No runs yet.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

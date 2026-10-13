@@ -71,9 +71,13 @@ func (s *Service) Start(ctx context.Context, req Request) (*store.Deployment, er
 		req.RefType = "branch"
 	}
 
-	// Automation slots live on a separate host with no booking system there,
-	// and their Jenkins job has an "-automation" suffix.
-	automation := s.cfg.IsAutomationSlot(req.Slot)
+	// Automation slots use the "-automation" Jenkins jobs and are not subject
+	// to the deploy booking check.
+	server, err := s.st.EnvironmentServer(req.Slot)
+	if err != nil {
+		return nil, err
+	}
+	automation := server == store.ServerAutomation
 	job := svc.Job
 	if automation {
 		job += "-automation"
