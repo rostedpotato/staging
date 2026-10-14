@@ -22,6 +22,9 @@ type Discovery struct {
 	ProbeHost string `json:"probeHost"`
 	// StatusSeconds is how often every known env is curled for up/down.
 	StatusSeconds int `json:"statusSeconds"`
+	// WBOURL is the details.json URL used for an env when nginx has no domain
+	// for it; "{env}" is replaced by the env name.
+	WBOURL string `json:"wboUrl"`
 }
 
 type Auth struct {
@@ -91,6 +94,9 @@ type Automation struct {
 	// ContainerInfix sits between the service and env name in container
 	// names on that server: watersheep-automation-0vt -> "automation-".
 	ContainerInfix string `json:"containerInfix"`
+	// WBOURL is the WBO details.json URL per env; "{env}" is replaced by the
+	// env name, e.g. https://pos-staging-automation-{env}.sistemparkiran.com/details.json
+	WBOURL string `json:"wboUrl"`
 	// Slots seeds the inventory on first start (see AutomationSlot).
 	Slots []AutomationSlot `json:"slots"`
 }
@@ -151,6 +157,9 @@ func (c *Config) withDefaults() {
 	}
 	if c.Automation.SSH.KnownHostsPath == "" {
 		c.Automation.SSH.KnownHostsPath = filepath.Join(filepath.Dir(c.DBPath), "known_hosts")
+	}
+	if c.Automation.WBOURL == "" {
+		c.Automation.WBOURL = "https://pos-staging-automation-{env}.sistemparkiran.com/details.json"
 	}
 	if c.Automation.ContainerInfix == "" {
 		c.Automation.ContainerInfix = "automation-"

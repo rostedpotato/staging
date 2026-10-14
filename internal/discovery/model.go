@@ -15,6 +15,9 @@ type Service struct {
 	// right now (as opposed to Slot.Commit, which is the git checkout).
 	// Empty if the service isn't running or doesn't expose the endpoint.
 	RunningVersion string
+
+	// wboURLs are the details.json URLs tried (in order) for the WBO service.
+	wboURLs []string
 }
 
 // Slot is one parallel staging environment (agent-<name>).

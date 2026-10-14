@@ -19,6 +19,18 @@ var (
 // points at /data/app/agent-<slot>/... . Files without such a root are matched
 // heuristically by the slot token appearing in the file name.
 func domainsBySlot(sitesDir, appRoot, slotPrefix string, slots []string) map[string][]string {
+	return collectDomains(sitesDir, appRoot, slotPrefix, slots, false)
+}
+
+// wboDomainsBySlot returns only domains from config files whose `root` points
+// into the slot's own directory, i.e. nginx really serves that slot's WBO
+// build there. File-name matching is NOT used: it would attach unrelated
+// sites to short slot names (portainer-ho.conf -> slot "ho").
+func wboDomainsBySlot(sitesDir, appRoot, slotPrefix string) map[string][]string {
+	return collectDomains(sitesDir, appRoot, slotPrefix, nil, true)
+}
+
+func collectDomains(sitesDir, appRoot, slotPrefix string, slots []string, rootOnly bool) map[string][]string {
 	out := map[string]map[string]bool{}
 	add := func(slot, domain string) {
 		domain = strings.TrimSpace(domain)
@@ -42,7 +54,7 @@ func domainsBySlot(sitesDir, appRoot, slotPrefix string, slots []string) map[str
 		path := filepath.Join(sitesDir, e.Name())
 		names, slotFromRoot := parseSite(path, appRoot, slotPrefix)
 		slot := slotFromRoot
-		if slot == "" {
+		if slot == "" && !rootOnly {
 			slot = matchSlotByName(e.Name(), slots)
 		}
 		for _, n := range names {

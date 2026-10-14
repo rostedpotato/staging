@@ -22,11 +22,14 @@ func portNum(t *testing.T, srv *httptest.Server) int {
 func upServer(t *testing.T, version string) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/actuator/info" {
+		switch r.URL.Path {
+		case "/actuator/info":
+			w.Write([]byte(`{"build":{"version":"` + version + `"}}`))
+		case "/details.json":
+			w.Write([]byte(`{"version":"v1.18.0-44924546","location_name":"unknown"}`))
+		default:
 			http.NotFound(w, r)
-			return
 		}
-		w.Write([]byte(`{"build":{"version":"` + version + `"}}`))
 	}))
 	t.Cleanup(srv.Close)
 	return srv
@@ -72,7 +75,7 @@ func TestStatusStagingProbesStoredPorts(t *testing.T) {
 func TestStatusAutomationMissingPort(t *testing.T) {
 	up := upServer(t, "v2.95.4-988a036d9c")
 	d := New(config.Discovery{Services: []string{"watersheep", "fisherman"}})
-	slots := d.StatusAutomation(context.Background(), "127.0.0.1", []store.Environment{
+	slots := d.StatusAutomation(context.Background(), config.Automation{Host: "127.0.0.1", WBOURL: up.URL + "/details.json"}, []store.Environment{
 		{Name: "0vt", Ports: map[string]int{"watersheep": portNum(t, up), "fisherman": portNum(t, up)}},
 		{Name: "0pv", Ports: map[string]int{"watersheep": portNum(t, up)}},
 	})
@@ -84,6 +87,16 @@ func TestStatusAutomationMissingPort(t *testing.T) {
 	}
 	if s := slots[0].Services[1].Status; s != "no port found by discovery" {
 		t.Fatalf("missing port status = %q", s)
+	}
+	// WBO is checked through details.json and reports its version.
+	var wbo Service
+	for _, svc := range slots[1].Services {
+		if svc.Name == "wbo" {
+			wbo = svc
+		}
+	}
+	if wbo.State != "running" || wbo.RunningVersion != "v1.18.0-44924546" {
+		t.Fatalf("wbo should be running with version, got %+v", wbo)
 	}
 }
 
@@ -224,5 +237,44 @@ func TestDiffEnvironments(t *testing.T) {
 	}
 	if _, ok := kinds["0vt"]; ok {
 		t.Fatalf("0vt is on an unscanned server and must be left out, got %q", kinds["0vt"])
+	}
+}
+
+func TestWBOURLsFor(t *testing.T) {
+	// Real nginx names for env 06r: public, a second public domain, an internal one.
+	domains := []string{"pos-staging-06r.parkee.app", "pos-staging-06r.pos-parkee.local", "pos-staging-06r.sistemparkiran.com"}
+	got := wboURLsFor(domains, "https://x-{env}.example.com/details.json", "06r")
+	if len(got) != 1 || got[0] != "https://pos-staging-06r.sistemparkiran.com/details.json" {
+		t.Fatalf("want the sistemparkiran.com domain only, got %v", got)
+	}
+	got = wboURLsFor([]string{"a.pos-parkee.local"}, "https://pos-staging-automation-{env}.sistemparkiran.com/details.json", "0vt")
+	if len(got) != 1 || got[0] != "https://pos-staging-automation-0vt.sistemparkiran.com/details.json" {
+		t.Fatalf("want template fallback, got %v", got)
+	}
+	if got := wboURLsFor(nil, "", "x"); got != nil {
+		t.Fatalf("no domain and no template must give no URL, got %v", got)
+	}
+}
+
+func TestProbeDetailsVersionAndFailures(t *testing.T) {
+	ok := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"version":"v1.18.0-44924546","location_name":"unknown","location_code":"unknown"}`))
+	}))
+	defer ok.Close()
+	if r := probeDetails(context.Background(), ok.URL+"/details.json"); !r.Up || r.Version != "v1.18.0-44924546" {
+		t.Fatalf("details.json should be up with version, got %+v", r)
+	}
+	notFound := httptest.NewServer(http.NotFoundHandler())
+	defer notFound.Close()
+	if r := probeDetails(context.Background(), notFound.URL); r.Up || r.Status != "HTTP 404" {
+		t.Fatalf("404 must be down, got %+v", r)
+	}
+	// An SPA fallback answers 200 with HTML: still up, but no version.
+	spa := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte("<html></html>"))
+	}))
+	defer spa.Close()
+	if r := probeDetails(context.Background(), spa.URL); !r.Up || r.Version != "" {
+		t.Fatalf("html fallback should be up with empty version, got %+v", r)
 	}
 }

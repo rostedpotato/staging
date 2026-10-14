@@ -69,7 +69,7 @@
             <td><b>{{.Slot}}</b></td>
             <td>{{.Username}}</td>
             <td>{{fmtTime .Start}}</td>
-            <td>{{if .ReleasedAt}}{{fmtTime .ReleasedAt}}{{else}}{{fmtTime .End}}{{end}}</td>
+            <td>{{if not .ReleasedAt.IsZero}}{{fmtTime .ReleasedAt}}{{else}}{{fmtTime .End}}{{end}}</td>
             <td><span class="tag">{{.Status}}</span></td>
             <td>{{.Purpose}}</td>
           </tr>

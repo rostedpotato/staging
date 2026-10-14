@@ -4,10 +4,9 @@ package discovery
 
 import (
 	"context"
-	"encoding/json"
-	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 
 	"parkee/staging-platform/internal/config"
@@ -22,14 +21,17 @@ func New(cfg config.Discovery) *Discoverer { return &Discoverer{cfg: cfg} }
 
 // StatusStaging builds dashboard cards for the given staging envs: ports come
 // from the stored inventory (set by an admin-run discovery), git/nginx/WBO
-// info is read from the slot directory on disk, and every service port is
-// curled for up/down. It never mutates the host.
+// info is read from the slot directory on disk, and every service (ports and
+// the WBO details.json) is curled for up/down. It never mutates the host.
 func (d *Discoverer) StatusStaging(ctx context.Context, envs []store.Environment) []Slot {
 	names := make([]string, 0, len(envs))
 	for _, e := range envs {
 		names = append(names, e.Name)
 	}
 	domains := domainsBySlot(d.cfg.NginxSitesDir, d.cfg.AppRoot, d.cfg.SlotDirPrefix, names)
+	// WBO URLs come only from configs that serve this slot's dist/ folder, so
+	// a name match like portainer-ho.conf can't hand "ho" the wrong site.
+	wboDomains := wboDomainsBySlot(d.cfg.NginxSitesDir, d.cfg.AppRoot, d.cfg.SlotDirPrefix)
 
 	slots := make([]Slot, 0, len(envs))
 	for _, e := range envs {
@@ -48,7 +50,7 @@ func (d *Discoverer) StatusStaging(ctx context.Context, envs []store.Environment
 			Commit:     commit,
 			Version:    version,
 			CommitTime: commitTime,
-			Services:   append(services, wboService(repoDir)),
+			Services:   append(services, newWBOService(wboURLsFor(wboDomains[e.Name], d.cfg.WBOURL, e.Name))),
 		})
 	}
 	sort.Slice(slots, func(i, j int) bool { return slots[i].Name < slots[j].Name })
@@ -64,13 +66,20 @@ func probeServices(ctx context.Context, host string, slots []Slot) {
 	for i := range slots {
 		for j := range slots[i].Services {
 			svc := &slots[i].Services[j]
-			if svc.HostPort == "" {
+			if svc.HostPort == "" && len(svc.wboURLs) == 0 {
 				continue
 			}
 			wg.Add(1)
 			go func(svc *Service) {
 				defer wg.Done()
-				res := probeActuator(ctx, host, svc.HostPort)
+				var res probeResult
+				if len(svc.wboURLs) > 0 {
+					// One URL only: a domain that doesn't answer costs a full
+					// probe timeout, so trying several would multiply it.
+					res = probeDetails(ctx, svc.wboURLs[0])
+				} else {
+					res = probeActuator(ctx, host, svc.HostPort)
+				}
 				svc.Status = res.Status
 				if res.Up {
 					svc.State, svc.Health = "running", "healthy"
@@ -82,38 +91,37 @@ func probeServices(ctx context.Context, host string, slots []Slot) {
 	wg.Wait()
 }
 
-// wboService reports on WBO (Web Backoffice), which unlike watersheep/
-// fisherman isn't a Docker container: it's the slot's frontend built to
-// <repoDir>/dist and served directly by nginx. "Found" here means the build
-// output exists on disk. The running version comes from dist/details.json
-// (written by the frontend build), e.g. {"version": "v1.18.1-b9f5776d", ...} -
-// this is WBO's equivalent of the other services' /actuator/info version.
-func wboService(repoDir string) Service {
-	svc := Service{Name: "wbo", Container: "(static: nginx dist)"}
-	distDir := filepath.Join(repoDir, "dist")
-	if st, err := os.Stat(filepath.Join(distDir, "index.html")); err == nil && !st.IsDir() {
-		svc.Found = true
-		svc.State = "running"
-		svc.Status = "built, served by nginx"
-		svc.RunningVersion = wboDistVersion(distDir)
-	} else {
-		svc.State = "missing"
-		svc.Status = "dist/index.html not found"
+// newWBOService makes the WBO entry for a slot. WBO is a static frontend
+// served by nginx, so it has no port: it's checked by curling its
+// details.json (see probeServices).
+func newWBOService(urls []string) Service {
+	svc := Service{Name: "wbo", Container: "(static: nginx)", Found: true, State: "down", Health: "none", wboURLs: urls}
+	if len(urls) == 0 {
+		svc.Status = "no WBO url (no nginx domain and no wboUrl template)"
 	}
 	return svc
 }
 
-// wboDistVersion reads the "version" field out of dist/details.json.
-func wboDistVersion(distDir string) string {
-	data, err := os.ReadFile(filepath.Join(distDir, "details.json"))
-	if err != nil {
-		return ""
+// wboURLsFor returns the details.json URL to check for an env: its first
+// public nginx domain (sistemparkiran.com preferred, internal .local/.internal
+// names dropped), or the template with {env} filled in when there is none.
+// Only one URL is returned on purpose, see probeServices.
+func wboURLsFor(domains []string, template, env string) []string {
+	var public []string
+	for _, d := range domains {
+		if strings.HasPrefix(d, "~") || strings.HasSuffix(d, ".local") || strings.HasSuffix(d, ".internal") {
+			continue
+		}
+		public = append(public, d)
 	}
-	var body struct {
-		Version string `json:"version"`
+	sort.SliceStable(public, func(i, j int) bool {
+		return strings.HasSuffix(public[i], ".sistemparkiran.com") && !strings.HasSuffix(public[j], ".sistemparkiran.com")
+	})
+	if len(public) > 0 {
+		return []string{"https://" + public[0] + "/details.json"}
 	}
-	if err := json.Unmarshal(data, &body); err != nil {
-		return ""
+	if template != "" {
+		return []string{strings.ReplaceAll(template, "{env}", env)}
 	}
-	return body.Version
+	return nil
 }

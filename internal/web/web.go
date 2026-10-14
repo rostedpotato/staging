@@ -187,7 +187,7 @@ func (s *Server) refreshStatus(ctx context.Context) {
 	staging, _ := s.st.ListEnvironments(store.ServerStaging)
 	automation, _ := s.st.ListEnvironments(store.ServerAutomation)
 	stagingSlots := s.disc.StatusStaging(ctx, activeOnly(staging))
-	automationSlots := s.disc.StatusAutomation(ctx, s.cfg.Automation.Host, activeOnly(automation))
+	automationSlots := s.disc.StatusAutomation(ctx, s.cfg.Automation, activeOnly(automation))
 
 	s.statusMu.Lock()
 	defer s.statusMu.Unlock()

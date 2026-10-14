@@ -2,22 +2,32 @@ package discovery
 
 import (
 	"context"
+	"net/url"
 	"sort"
 	"strconv"
 
+	"parkee/staging-platform/internal/config"
 	"parkee/staging-platform/internal/store"
 )
 
 // StatusAutomation builds dashboard cards for automation envs from the stored
-// inventory and curls /actuator/info on each port at host. There is no git or
-// nginx info for that server, so cards only carry status and versions.
-func (d *Discoverer) StatusAutomation(ctx context.Context, host string, envs []store.Environment) []Slot {
+// inventory: /actuator/info on each port at auto.Host, and WBO via its
+// details.json URL (auto.WBOURL). There is no git or nginx info for that
+// server, so cards only carry status, versions and the WBO domain.
+func (d *Discoverer) StatusAutomation(ctx context.Context, auto config.Automation, envs []store.Environment) []Slot {
 	slots := make([]Slot, 0, len(envs))
 	for _, e := range envs {
-		slots = append(slots, Slot{Name: e.Name, Services: d.portServices(e.Ports)})
+		urls := wboURLsFor(nil, auto.WBOURL, e.Name)
+		slot := Slot{Name: e.Name, Services: append(d.portServices(e.Ports), newWBOService(urls))}
+		for _, raw := range urls {
+			if u, err := url.Parse(raw); err == nil && u.Host != "" {
+				slot.Domains = append(slot.Domains, u.Host)
+			}
+		}
+		slots = append(slots, slot)
 	}
 	sort.Slice(slots, func(i, j int) bool { return slots[i].Name < slots[j].Name })
-	probeServices(ctx, host, slots)
+	probeServices(ctx, auto.Host, slots)
 	return slots
 }
 

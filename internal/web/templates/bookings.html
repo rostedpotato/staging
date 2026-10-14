@@ -19,18 +19,281 @@
 <main>
   <section class="panel">
     <h2>Book a slot</h2>
-    <p class="hint">Bookings are for one day. Fields marked <span class="required-mark">*</span> are required.</p>
-    <form method="post" action="/bookings/create" class="bookform">
-      <label>Slot <span class="required-mark">*</span>
+    <p class="hint">Click a date to book one day. Click a second date to book every day in between (up to {{.MaxDays}} days). Fields marked <span class="required-mark">*</span> are required.</p>
+    <form method="post" action="/bookings/create" class="bookform" id="bookForm">
+      <label class="slot"><span>Slot <span class="required-mark">*</span></span>
         <select name="slot" required>
           <option value="" disabled selected>choose…</option>
-          {{range .Slots}}<option value="{{.}}">{{.}}</option>{{end}}
+          {{if .StagingSlots}}<optgroup label="Staging">
+            {{range .StagingSlots}}<option value="{{.}}">{{.}}</option>{{end}}
+          </optgroup>{{end}}
+          {{if .AutomationSlots}}<optgroup label="Staging Automation">
+            {{range .AutomationSlots}}<option value="{{.}}">{{.}}</option>{{end}}
+          </optgroup>{{end}}
         </select>
       </label>
-      <label>Date <span class="required-mark">*</span> <input type="date" name="date" required></label>
-      <label class="wide">Purpose <input type="text" name="purpose" placeholder="e.g. Payment QA" maxlength="200"></label>
+      <label class="wide"><span>Purpose</span> <input type="text" name="purpose" placeholder="e.g. Payment QA" maxlength="200"></label>
+      <div class="calwrap">
+        <div class="cal-label">Dates <span class="required-mark">*</span></div>
+        <div class="cal" id="bookCal"></div>
+        <div class="cal-legend">
+          <span><i class="sw sw-sel"></i>Selected</span>
+          <span><i class="sw sw-booked"></i>Booked by someone else</span>
+          <span><i class="sw sw-mine"></i>Your booking</span>
+          <span><i class="sw sw-free"></i>Free</span>
+        </div>
+        <div class="cal-summary" id="calSummary" aria-live="polite"></div>
+        <div class="cal-notes" id="calNotes"></div>
+      </div>
+      <input type="hidden" name="startDate" id="startDate">
+      <input type="hidden" name="endDate" id="endDate">
       <button type="submit" class="btn">Book</button>
     </form>
+    <script>
+    (function () {
+      var maxDays = {{.MaxDays}};
+      var root = document.getElementById('bookCal');
+      var startIn = document.getElementById('startDate');
+      var endIn = document.getElementById('endDate');
+      var summary = document.getElementById('calSummary');
+      var form = document.getElementById('bookForm');
+      var MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December'];
+      var WEEKDAYS = ['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'];
+      var DAY_MS = 86400000;
+
+      function pad(n) { return n < 10 ? '0' + n : '' + n; }
+      function iso(d) { return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()); }
+      function mk(y, m, d) { return new Date(y, m, d); }
+      function diff(a, b) { return Math.round((b - a) / DAY_MS); }
+      function label(d) { return d.getDate() + ' ' + MONTHS[d.getMonth()].slice(0, 3) + ' ' + d.getFullYear(); }
+
+      var now = new Date();
+      var today = mk(now.getFullYear(), now.getMonth(), now.getDate());
+      var view = mk(today.getFullYear(), today.getMonth(), 1); // first visible month
+      var start = null, end = null;
+      var picking = false; // true after the first click, until a second date is chosen
+      var hover = null;
+      var cells = [];      // {el, date} for every day button currently on screen
+
+      // Active bookings per slot: {slot: [{s, e, user, purpose, mine}]}, dates
+      // are YYYY-MM-DD and inclusive. Only used to mark days; the server still
+      // rejects any clash when the form is submitted.
+      var booked = {{.Booked}};
+      var slotSel = form.elements['slot'];
+      var notes = document.getElementById('calNotes');
+
+      function parse(v) { var p = v.split('-'); return mk(+p[0], +p[1] - 1, +p[2]); }
+      function bookings() { return (slotSel.value && booked[slotSel.value]) || []; }
+      function bookingOn(d) {
+        var k = iso(d), list = bookings();
+        for (var i = 0; i < list.length; i++) {
+          if (k >= list[i].s && k <= list[i].e) return list[i];
+        }
+        return null;
+      }
+      // true when no day from a to b (either order, inclusive) is booked
+      function rangeFree(a, b) {
+        var lo = a < b ? a : b, hi = a < b ? b : a;
+        for (var d = lo; d <= hi; d = mk(d.getFullYear(), d.getMonth(), d.getDate() + 1)) {
+          if (bookingOn(d)) return false;
+        }
+        return true;
+      }
+      function rangeText(b) {
+        return b.s === b.e ? label(parse(b.s)) : label(parse(b.s)) + ' \u2013 ' + label(parse(b.e));
+      }
+      // Lists who holds the chosen slot, under the calendar.
+      function renderNotes() {
+        notes.innerHTML = '';
+        if (!slotSel.value) {
+          notes.textContent = 'Choose a slot to see which days are already booked.';
+          return;
+        }
+        var title = document.createElement('div');
+        title.className = 'cal-notes-title';
+        title.textContent = 'Bookings on ' + slotSel.value;
+        notes.appendChild(title);
+        var list = bookings();
+        if (!list.length) {
+          var none = document.createElement('div');
+          none.textContent = 'No bookings \u2014 every day is free.';
+          notes.appendChild(none);
+          return;
+        }
+        list.forEach(function (b) {
+          var row = document.createElement('div');
+          row.className = 'cal-note' + (b.mine ? ' mine' : '');
+          var when = document.createElement('b');
+          when.textContent = rangeText(b);
+          row.appendChild(when);
+          row.appendChild(document.createTextNode(' \u2014 ' + b.user + (b.mine ? ' (you)' : '') + (b.purpose ? ' \u00b7 ' + b.purpose : '')));
+          notes.appendChild(row);
+        });
+      }
+
+      // A day can be chosen if it's not in the past, not already booked on
+      // the chosen slot and, while picking the second date, the whole booking
+      // stays within maxDays and doesn't run over a booked day.
+      function selectable(d) {
+        if (d < today) return false;
+        if (bookingOn(d)) return false;
+        if (picking && start) {
+          if (Math.abs(diff(start, d)) >= maxDays) return false;
+          if (!rangeFree(start, d)) return false;
+        }
+        return true;
+      }
+
+      function pick(d) {
+        if (!selectable(d)) return;
+        if (!picking) {
+          start = d; end = d; picking = true;
+        } else {
+          if (d < start) { end = start; start = d; } else { end = d; }
+          picking = false;
+        }
+        hover = null;
+        sync();
+        paint();
+      }
+
+      function sync() {
+        startIn.value = start ? iso(start) : '';
+        // A single day is sent without an end date.
+        endIn.value = (start && end && end.getTime() !== start.getTime()) ? iso(end) : '';
+        summary.classList.remove('cal-error');
+        if (!start) {
+          summary.textContent = 'No date selected yet.';
+        } else if (end.getTime() === start.getTime()) {
+          summary.textContent = picking
+            ? 'Selected ' + label(start) + ' (1 day). Click another date to extend the booking, or press Book.'
+            : 'Selected ' + label(start) + ' (1 day).';
+        } else {
+          summary.textContent = 'Selected ' + label(start) + ' to ' + label(end) + ' (' + (diff(start, end) + 1) + ' days).';
+        }
+      }
+
+      function paint() {
+        var lo = start, hi = end, preview = false;
+        if (picking && hover && selectable(hover)) {
+          preview = true;
+          lo = hover < start ? hover : start;
+          hi = hover < start ? start : hover;
+        }
+        cells.forEach(function (c) {
+          var d = c.date, t = d.getTime();
+          var inRange = lo && t >= lo.getTime() && t <= hi.getTime();
+          c.el.disabled = !selectable(d);
+          c.el.classList.toggle('in-range', !!inRange);
+          c.el.classList.toggle('is-start', !!inRange && t === lo.getTime());
+          c.el.classList.toggle('is-end', !!inRange && t === hi.getTime());
+          c.el.classList.toggle('is-preview', !!inRange && preview);
+          c.el.setAttribute('aria-pressed', inRange ? 'true' : 'false');
+          var bk = bookingOn(d);
+          c.el.classList.toggle('is-booked', !!bk && !bk.mine);
+          c.el.classList.toggle('is-mine', !!bk && bk.mine);
+          c.el.title = bk ? 'Booked by ' + bk.user + (bk.purpose ? ' \u2014 ' + bk.purpose : '') : '';
+        });
+      }
+
+      function monthBlock(first) {
+        var box = document.createElement('div');
+        box.className = 'cal-month';
+        var title = document.createElement('div');
+        title.className = 'cal-title';
+        title.textContent = MONTHS[first.getMonth()] + ' ' + first.getFullYear();
+        box.appendChild(title);
+
+        var grid = document.createElement('div');
+        grid.className = 'cal-grid';
+        WEEKDAYS.forEach(function (w) {
+          var h = document.createElement('div');
+          h.className = 'cal-wd';
+          h.textContent = w;
+          grid.appendChild(h);
+        });
+        var offset = (first.getDay() + 6) % 7; // weeks start on Monday
+        for (var i = 0; i < offset; i++) grid.appendChild(document.createElement('div'));
+        var count = mk(first.getFullYear(), first.getMonth() + 1, 0).getDate();
+        for (var n = 1; n <= count; n++) {
+          (function (date) {
+            var b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'cal-day';
+            b.textContent = date.getDate();
+            b.setAttribute('aria-label', label(date));
+            if (date.getTime() === today.getTime()) b.classList.add('is-today');
+            b.addEventListener('click', function () { pick(date); });
+            b.addEventListener('mouseenter', function () { if (picking) { hover = date; paint(); } });
+            grid.appendChild(b);
+            cells.push({ el: b, date: date });
+          })(mk(first.getFullYear(), first.getMonth(), n));
+        }
+        box.appendChild(grid);
+        return box;
+      }
+
+      function nav(label, delta, disabled) {
+        var b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'cal-nav';
+        b.textContent = delta < 0 ? '\u2039' : '\u203A';
+        b.setAttribute('aria-label', label);
+        b.disabled = disabled;
+        b.addEventListener('click', function () {
+          view = mk(view.getFullYear(), view.getMonth() + delta, 1);
+          render();
+        });
+        return b;
+      }
+
+      function render() {
+        cells = [];
+        root.innerHTML = '';
+        var bar = document.createElement('div');
+        bar.className = 'cal-bar';
+        var atCurrent = view.getFullYear() === today.getFullYear() && view.getMonth() === today.getMonth();
+        bar.appendChild(nav('Previous month', -1, atCurrent));
+        bar.appendChild(nav('Next month', 1, false));
+        root.appendChild(bar);
+        var months = document.createElement('div');
+        months.className = 'cal-months';
+        months.addEventListener('mouseleave', function () { hover = null; paint(); });
+        months.appendChild(monthBlock(view));
+        months.appendChild(monthBlock(mk(view.getFullYear(), view.getMonth() + 1, 1)));
+        root.appendChild(months);
+        paint();
+      }
+
+      form.addEventListener('submit', function (e) {
+        if (!startIn.value) {
+          e.preventDefault();
+          summary.textContent = 'Pick a date on the calendar first.';
+          summary.classList.add('cal-error');
+        }
+      });
+
+      // Changing the slot: the days taken are different, so drop a half-made
+      // pick and clear dates that are now taken.
+      slotSel.addEventListener('change', function () {
+        picking = false;
+        hover = null;
+        var clash = start && !rangeFree(start, end);
+        if (clash) { start = null; end = null; }
+        sync();
+        if (clash) {
+          summary.textContent = 'Those dates are taken on ' + slotSel.value + '. Pick other dates.';
+          summary.classList.add('cal-error');
+        }
+        renderNotes();
+        paint();
+      });
+
+      sync();
+      renderNotes();
+      render();
+    })();
+    </script>
   </section>
 
   <section class="panel">
@@ -72,7 +335,7 @@
           <tr>
             <td>{{.Slot}}</td>
             <td>{{fmtTime .Start}}</td>
-            <td>{{if .ReleasedAt}}{{fmtTime .ReleasedAt}}{{else}}{{fmtTime .End}}{{end}}</td>
+            <td>{{if not .ReleasedAt.IsZero}}{{fmtTime .ReleasedAt}}{{else}}{{fmtTime .End}}{{end}}</td>
             <td><span class="tag">{{.Status}}</span></td>
             <td>{{.Purpose}}</td>
           </tr>
