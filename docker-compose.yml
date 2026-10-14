@@ -36,8 +36,18 @@ services:
       start_period: 5s
     # host.docker.internal isn't automatic on Linux hosts; needed to reach
     # watersheep/fisherman's published ports for the /actuator/info version check.
+    # The *.pos-parkee.local names are in the HOST's /etc/hosts only (a
+    # container has its own), so they are repeated here. The WBO status check
+    # curls https://<name>/details.json for envs that have no public domain
+    # (ho). Add a line here when a new env needs it.
     extra_hosts:
       - "host.docker.internal:host-gateway"
+      - "pos-staging-ho.pos-parkee.local:10.20.1.12"
+      - "pos-staging-06r.pos-parkee.local:10.20.1.12"
+      - "pos-staging-04.pos-parkee.local:10.20.1.12"
+      - "pos-staging-08.pos-parkee.local:10.20.1.12"
+      - "pos-staging-09.pos-parkee.local:10.20.1.12"
+      - "pos-staging-10.pos-parkee.local:10.20.1.12"
     volumes:
       # Config (create config.json from config.example.json).
       - ./config.json:/app/config.json:ro

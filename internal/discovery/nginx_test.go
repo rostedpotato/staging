@@ -61,8 +61,8 @@ func TestWBODomainsOnlyFromRootMatch(t *testing.T) {
 	if got := wboURLsFor(strict["development-04"], "", "development-04"); len(got) != 1 || got[0] != "https://pos-staging-04.sistemparkiran.com/details.json" {
 		t.Fatalf("development-04 should use pos-staging-04, got %v", got)
 	}
-	// ho is served only on an internal .local name: no usable public URL.
-	if got := wboURLsFor(strict["ho"], "", "ho"); got != nil {
-		t.Fatalf("ho has no public domain, want no URL, got %v", got)
+	// ho is served only on an internal .local name: that is its WBO URL.
+	if got := wboURLsFor(strict["ho"], "", "ho"); len(got) != 1 || got[0] != "https://pos-staging-ho.pos-parkee.local/details.json" {
+		t.Fatalf("ho should fall back to its .local name, got %v", got)
 	}
 }

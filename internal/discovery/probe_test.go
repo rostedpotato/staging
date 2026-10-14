@@ -247,9 +247,20 @@ func TestWBOURLsFor(t *testing.T) {
 	if len(got) != 1 || got[0] != "https://pos-staging-06r.sistemparkiran.com/details.json" {
 		t.Fatalf("want the sistemparkiran.com domain only, got %v", got)
 	}
-	got = wboURLsFor([]string{"a.pos-parkee.local"}, "https://pos-staging-automation-{env}.sistemparkiran.com/details.json", "0vt")
+	// Internal-only env: the .local name is used, ahead of the template.
+	got = wboURLsFor([]string{"a.pos-parkee.local"}, "https://x-{env}.example.com/details.json", "ho")
+	if len(got) != 1 || got[0] != "https://a.pos-parkee.local/details.json" {
+		t.Fatalf("want the .local name, got %v", got)
+	}
+	// Regex and .internal names are never used; the template takes over.
+	got = wboURLsFor([]string{`~^(?<app>.+)\.pos-parkee\.internal$`, "a.pos-parkee.internal"}, "https://pos-staging-automation-{env}.sistemparkiran.com/details.json", "0vt")
 	if len(got) != 1 || got[0] != "https://pos-staging-automation-0vt.sistemparkiran.com/details.json" {
 		t.Fatalf("want template fallback, got %v", got)
+	}
+	// A public domain still wins over a .local one.
+	got = wboURLsFor([]string{"pos-staging-06r.pos-parkee.local", "pos-staging-06r.sistemparkiran.com"}, "", "06r")
+	if len(got) != 1 || got[0] != "https://pos-staging-06r.sistemparkiran.com/details.json" {
+		t.Fatalf("public domain should win, got %v", got)
 	}
 	if got := wboURLsFor(nil, "", "x"); got != nil {
 		t.Fatalf("no domain and no template must give no URL, got %v", got)
@@ -276,5 +287,36 @@ func TestProbeDetailsVersionAndFailures(t *testing.T) {
 	defer spa.Close()
 	if r := probeDetails(context.Background(), spa.URL); !r.Up || r.Version != "" {
 		t.Fatalf("html fallback should be up with empty version, got %+v", r)
+	}
+}
+
+func TestClientForSkipsVerificationOnlyForLocal(t *testing.T) {
+	for url, want := range map[string]*http.Client{
+		"https://pos-staging-ho.pos-parkee.local/details.json":      insecureProbeClient,
+		"https://pos-staging-ho.pos-parkee.local:8443/details.json": insecureProbeClient,
+		"https://pos-staging-06r.sistemparkiran.com/details.json":   probeClient,
+		"https://evil.example.com/x.local/details.json":             probeClient,
+		"https://notlocal.example.com/details.json":                 probeClient,
+	} {
+		if got := clientFor(url); got != want {
+			t.Fatalf("%s: wrong client (insecure=%v)", url, got == insecureProbeClient)
+		}
+	}
+}
+
+func TestProbeDetailsSelfSignedCertificate(t *testing.T) {
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"version":"v1.18.0-44924546"}`))
+	}))
+	defer srv.Close()
+	url := srv.URL + "/details.json"
+
+	// Strict client (what every non-.local host gets): refuses, with a clear reason.
+	if r := probeDetailsWith(context.Background(), probeClient, url); r.Up || r.Status != "no response: certificate not trusted" {
+		t.Fatalf("self-signed cert must be refused by the strict client, got %+v", r)
+	}
+	// The .local client accepts it and still reads the version.
+	if r := probeDetailsWith(context.Background(), insecureProbeClient, url); !r.Up || r.Version != "v1.18.0-44924546" {
+		t.Fatalf("insecure client should accept the self-signed cert, got %+v", r)
 	}
 }

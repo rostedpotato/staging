@@ -2,12 +2,15 @@ package discovery
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -17,6 +20,23 @@ import (
 const probeTimeout = 3 * time.Second
 
 var probeClient = &http.Client{Timeout: probeTimeout}
+
+// insecureProbeClient skips certificate verification. It is used only for
+// internal ".local" names: their nginx blocks use a self-signed certificate
+// (the equivalent of `curl -k`). Public domains keep full verification.
+var insecureProbeClient = func() *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	return &http.Client{Timeout: probeTimeout, Transport: tr}
+}()
+
+// clientFor picks the HTTP client for a details.json URL.
+func clientFor(rawURL string) *http.Client {
+	if u, err := url.Parse(rawURL); err == nil && strings.HasSuffix(u.Hostname(), ".local") {
+		return insecureProbeClient
+	}
+	return probeClient
+}
 
 type probeResult struct {
 	Up      bool
@@ -58,13 +78,17 @@ func probeActuator(ctx context.Context, host, port string) probeResult {
 // A 2xx answer means the site is served; the version is the top-level
 // "version" field. A site that answers 2xx without that JSON (an SPA fallback
 // page) still counts as up, with an empty version.
-func probeDetails(ctx context.Context, url string) probeResult {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+func probeDetails(ctx context.Context, rawURL string) probeResult {
+	return probeDetailsWith(ctx, clientFor(rawURL), rawURL)
+}
+
+func probeDetailsWith(ctx context.Context, client *http.Client, rawURL string) probeResult {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return probeResult{Status: "bad probe url"}
 	}
 	start := time.Now()
-	resp, err := probeClient.Do(req)
+	resp, err := client.Do(req)
 	if err != nil {
 		return probeResult{Status: "no response: " + probeReason(err)}
 	}
@@ -84,7 +108,10 @@ func probeDetails(ctx context.Context, url string) probeResult {
 
 func probeReason(err error) string {
 	var ne net.Error
+	var certErr *tls.CertificateVerificationError
 	switch {
+	case errors.As(err, &certErr):
+		return "certificate not trusted"
 	case errors.Is(err, syscall.ECONNREFUSED):
 		return "connection refused"
 	case errors.As(err, &ne) && ne.Timeout():

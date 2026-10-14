@@ -102,25 +102,32 @@ func newWBOService(urls []string) Service {
 	return svc
 }
 
-// wboURLsFor returns the details.json URL to check for an env: its first
-// public nginx domain (sistemparkiran.com preferred, internal .local/.internal
-// names dropped), or the template with {env} filled in when there is none.
-// Only one URL is returned on purpose, see probeServices.
+// wboURLsFor returns the details.json URL to check for an env, from nginx
+// domains that serve its dist/ folder: a public domain first
+// (sistemparkiran.com preferred), else an internal ".local" name (reached
+// through extra_hosts in compose, certificate not verified), else the template
+// with {env} filled in. Regex server_names (~...) and ".internal" names are
+// never used. Only one URL is returned on purpose, see probeServices.
 func wboURLsFor(domains []string, template, env string) []string {
-	var public []string
+	var public, internal []string
 	for _, d := range domains {
-		if strings.HasPrefix(d, "~") || strings.HasSuffix(d, ".local") || strings.HasSuffix(d, ".internal") {
-			continue
+		switch {
+		case strings.HasPrefix(d, "~"), strings.HasSuffix(d, ".internal"):
+		case strings.HasSuffix(d, ".local"):
+			internal = append(internal, d)
+		default:
+			public = append(public, d)
 		}
-		public = append(public, d)
 	}
 	sort.SliceStable(public, func(i, j int) bool {
 		return strings.HasSuffix(public[i], ".sistemparkiran.com") && !strings.HasSuffix(public[j], ".sistemparkiran.com")
 	})
-	if len(public) > 0 {
+	switch {
+	case len(public) > 0:
 		return []string{"https://" + public[0] + "/details.json"}
-	}
-	if template != "" {
+	case len(internal) > 0:
+		return []string{"https://" + internal[0] + "/details.json"}
+	case template != "":
 		return []string{strings.ReplaceAll(template, "{env}", env)}
 	}
 	return nil
