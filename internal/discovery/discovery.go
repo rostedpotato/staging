@@ -4,6 +4,7 @@ package discovery
 
 import (
 	"context"
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -32,6 +33,7 @@ func (d *Discoverer) StatusStaging(ctx context.Context, envs []store.Environment
 	// WBO URLs come only from configs that serve this slot's dist/ folder, so
 	// a name match like portainer-ho.conf can't hand "ho" the wrong site.
 	wboDomains := wboDomainsBySlot(d.cfg.NginxSitesDir, d.cfg.AppRoot, d.cfg.SlotDirPrefix)
+	broken := brokenLinks(d.cfg.NginxSitesDir)
 
 	slots := make([]Slot, 0, len(envs))
 	for _, e := range envs {
@@ -42,6 +44,10 @@ func (d *Discoverer) StatusStaging(ctx context.Context, envs []store.Environment
 		for i := range services {
 			services[i].Container = services[i].Name + "-" + e.Name
 		}
+		wbo := newWBOService(wboURLsFor(wboDomains[e.Name], d.cfg.WBOURL, e.Name))
+		if len(wbo.wboURLs) == 0 && broken > 0 {
+			wbo.Status = fmt.Sprintf("no WBO url: %d nginx config link(s) in %s are unreadable (mount /etc/nginx/sites-available too)", broken, d.cfg.NginxSitesDir)
+		}
 		slots = append(slots, Slot{
 			Name:       e.Name,
 			Dir:        dir,
@@ -50,7 +56,7 @@ func (d *Discoverer) StatusStaging(ctx context.Context, envs []store.Environment
 			Commit:     commit,
 			Version:    version,
 			CommitTime: commitTime,
-			Services:   append(services, newWBOService(wboURLsFor(wboDomains[e.Name], d.cfg.WBOURL, e.Name))),
+			Services:   append(services, wbo),
 		})
 	}
 	sort.Slice(slots, func(i, j int) bool { return slots[i].Name < slots[j].Name })
@@ -97,6 +103,9 @@ func probeServices(ctx context.Context, host string, slots []Slot) {
 func newWBOService(urls []string) Service {
 	svc := Service{Name: "wbo", Container: "(static: nginx)", Found: true, State: "down", Health: "none", wboURLs: urls}
 	if len(urls) == 0 {
+		// Nothing to curl, so we can't say it is down: "unknown" is shown
+		// grey and does not make the whole slot red (see Slot.Overall).
+		svc.State = "unknown"
 		svc.Status = "no WBO url (no nginx domain and no wboUrl template)"
 	}
 	return svc

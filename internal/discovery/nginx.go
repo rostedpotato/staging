@@ -74,6 +74,26 @@ func collectDomains(sitesDir, appRoot, slotPrefix string, slots []string, rootOn
 	return res
 }
 
+// brokenLinks counts symlinks in dir whose target can't be read. Inside a
+// container this is the sign that the link target (usually
+// /etc/nginx/sites-available) isn't mounted, which hides every domain.
+func brokenLinks(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, e := range entries {
+		if e.Type()&os.ModeSymlink == 0 {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(dir, e.Name())); err != nil {
+			n++
+		}
+	}
+	return n
+}
+
 // parseSite returns the server_names and, if a `root` points into
 // <appRoot>/<slotPrefix><slot>/..., the slot it belongs to.
 func parseSite(path, appRoot, slotPrefix string) (names []string, slot string) {

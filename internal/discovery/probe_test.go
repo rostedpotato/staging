@@ -320,3 +320,32 @@ func TestProbeDetailsSelfSignedCertificate(t *testing.T) {
 		t.Fatalf("insecure client should accept the self-signed cert, got %+v", r)
 	}
 }
+
+func TestSlotWithUncheckableWBOIsNotDown(t *testing.T) {
+	healthy := func(name string) Service {
+		return Service{Name: name, Found: true, State: "running", Health: "healthy"}
+	}
+	wbo := newWBOService(nil) // no url: cannot be checked
+	if wbo.State != "unknown" {
+		t.Fatalf("wbo without url should be unknown, got %q", wbo.State)
+	}
+
+	slot := Slot{Services: []Service{healthy("watersheep"), healthy("fisherman"), wbo}}
+	if got := slot.Overall(); got != "healthy" {
+		t.Fatalf("all checkable services up, wbo unknown: want healthy, got %q", got)
+	}
+	// A service that was checked and failed still turns the slot red.
+	slot.Services[0] = Service{Name: "watersheep", Found: true, State: "down"}
+	if got := slot.Overall(); got != "down" {
+		t.Fatalf("a failed check must still be down, got %q", got)
+	}
+	// A WBO that was curled and failed is down, not unknown.
+	bad := newWBOService([]string{"https://x.example.com/details.json"})
+	if bad.State != "down" {
+		t.Fatalf("wbo with a url that has not answered must be down, got %q", bad.State)
+	}
+	// Nothing checkable at all.
+	if got := (Slot{Services: []Service{wbo}}).Overall(); got != "unknown" {
+		t.Fatalf("nothing checkable: want unknown, got %q", got)
+	}
+}

@@ -66,3 +66,42 @@ func TestWBODomainsOnlyFromRootMatch(t *testing.T) {
 		t.Fatalf("ho should fall back to its .local name, got %v", got)
 	}
 }
+
+func TestBrokenLinksDetectsUnmountedSitesAvailable(t *testing.T) {
+	base := t.TempDir()
+	avail, enabled := filepath.Join(base, "sites-available"), filepath.Join(base, "sites-enabled")
+	for _, d := range []string{avail, enabled} {
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	conf := "server {\n server_name pos-staging-06r.sistemparkiran.com;\n root /data/app/agent-06r/parkee-agent-backoffice/dist;\n}\n"
+	if err := os.WriteFile(filepath.Join(avail, "pos-staging-06r.conf"), []byte(conf), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("../sites-available/pos-staging-06r.conf", filepath.Join(enabled, "pos-staging-06r.conf")); err != nil {
+		t.Fatal(err)
+	}
+	// A plain file is never counted as broken.
+	if err := os.WriteFile(filepath.Join(enabled, "plain.conf"), []byte("server {}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if n := brokenLinks(enabled); n != 0 {
+		t.Fatalf("link resolves, want 0 broken, got %d", n)
+	}
+	if got := wboDomainsBySlot(enabled, "/data/app", "agent-")["06r"]; len(got) != 1 {
+		t.Fatalf("resolving link should expose the domain, got %v", got)
+	}
+
+	// Container without sites-available: the link dangles.
+	if err := os.RemoveAll(avail); err != nil {
+		t.Fatal(err)
+	}
+	if n := brokenLinks(enabled); n != 1 {
+		t.Fatalf("dangling link: want 1 broken, got %d", n)
+	}
+	if got := wboDomainsBySlot(enabled, "/data/app", "agent-")["06r"]; len(got) != 0 {
+		t.Fatalf("dangling link must expose nothing, got %v", got)
+	}
+}

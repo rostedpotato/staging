@@ -59,7 +59,11 @@ services:
       # itself only ever calls read-only docker subcommands.
       - /var/run/docker.sock:/var/run/docker.sock
       - /data/app:/data/app:ro                          # slot dirs + git + .env
+      # sites-enabled entries are normally symlinks into sites-available. With
+      # only sites-enabled mounted they dangle inside the container, nginx
+      # config can't be read, and no domain (so no WBO url) is found.
       - /etc/nginx/sites-enabled:/etc/nginx/sites-enabled:ro  # domain mapping
+      - /etc/nginx/sites-available:/etc/nginx/sites-available:ro  # symlink targets
       # SSH key of the host user that can `ssh parkee@<automation host>`.
       # Used only by admin-triggered discovery (automation.ssh.keyPath).
       - /home/parkee/.ssh/id_rsa:/app/secrets/automation_key:ro

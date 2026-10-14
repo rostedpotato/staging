@@ -39,7 +39,12 @@ func (s Slot) Overall() string {
 	}
 	anyDown := false
 	anyUnhealthy := false
+	checked := 0
 	for _, svc := range s.Services {
+		if svc.State == "unknown" {
+			continue // couldn't be checked, so it can't count as down
+		}
+		checked++
 		if !svc.Found || svc.State != "running" {
 			anyDown = true
 		}
@@ -48,6 +53,8 @@ func (s Slot) Overall() string {
 		}
 	}
 	switch {
+	case checked == 0:
+		return "unknown"
 	case anyDown:
 		return "down"
 	case anyUnhealthy:
