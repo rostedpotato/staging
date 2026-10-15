@@ -1,6 +1,8 @@
 # Staging Self-Service Platform (all phases). Runs a tiny Go binary + embedded
-# SQLite in one container. Mounts host resources READ-ONLY for discovery
-# (docker.sock, /data/app, nginx sites) so it never changes staging by itself.
+# SQLite in one container. /data/app and the nginx dirs are mounted read-only
+# for discovery. docker.sock is read-write: besides `docker ps`/`inspect` the
+# platform runs `docker compose stop|start` for the env power page (never
+# `down`, never `-v`).
 services:
   staging-platform:
     build: .
@@ -53,10 +55,9 @@ services:
       - ./config.json:/app/config.json:ro
       # Persistent SQLite DB (users, sessions, bookings, deployments, audit).
       - ./data:/app/data
-      # Read-only host inspection sources. NOTE: docker.sock must be mounted
-      # read-write (not :ro) - connecting to it requires write access to the
-      # socket file even for read-only commands like `docker ps`; the app
-      # itself only ever calls read-only docker subcommands.
+      # NOTE: docker.sock must be mounted read-write (not :ro) - connecting to
+      # it requires write access to the socket file. The app calls `docker ps`,
+      # `docker inspect` and `docker compose stop|start` (env power page).
       - /var/run/docker.sock:/var/run/docker.sock
       - /data/app:/data/app:ro                          # slot dirs + git + .env
       # sites-enabled entries are normally symlinks into sites-available. With

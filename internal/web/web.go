@@ -1,4 +1,4 @@
-// Package web serves the read-only dashboard (Phase 1).
+// Package web serves the dashboard, bookings, deploys and admin pages.
 package web
 
 import (

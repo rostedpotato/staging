@@ -10,7 +10,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/staging-platform .
 
 # --- runtime stage ---
 # docker CLI + git run discovery; docker-cli-compose provides `docker compose`,
-# used only to stop/start an env's watersheep and fisherman (env power page).
+# used only to stop/start a whole env (env power page).
 FROM alpine:3.20
 RUN apk add --no-cache docker-cli docker-cli-compose git ca-certificates tzdata openssh-client
 WORKDIR /app

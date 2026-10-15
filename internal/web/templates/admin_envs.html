@@ -23,21 +23,23 @@
       for the whole env (watersheep, fisherman, database, redis, kafka, minio, ...), the same as running them
       in the env folder. Containers are only stopped, never removed, so data and Jenkins deploys keep working.
       Stopping takes a while because watersheep and fisherman are force-killed after about 10 seconds each;
-      after Start, watersheep can take a minute or more to answer. The web backoffice is served by nginx and stays up.
+      after Start, watersheep needs a moment before it answers (the card shows "starting" until it does).
+      The web backoffice is served by nginx and stays up.
       An env that is booked right now, or has a running deployment, is never stopped.</p>
   </section>
 
   <section class="panel">
     <h2>Automatic stop/start —
       {{if .AutoPower}}<span class="tag st-success">ON</span>{{else}}<span class="tag">OFF</span>{{end}}</h2>
-    <p class="hint">When on: an env with no booking is stopped <b>15 minutes</b> after its last booking ended
-      (or 15 minutes after this was switched on / the env was started, whichever is later), and a stopped env is
-      started <b>15 minutes before</b> its next booking begins (right away if a booking is already running).
-      A running deployment delays the stop. The countdown is shown here and on the dashboard.
+    <p class="hint">When on: an env with no booking gets a stop countdown of <b>15 minutes</b> after its last
+      booking ended (or after this was switched on / the env was started, whichever is later). It is only stopped
+      if <b>no booking begins within 30 minutes</b> after that moment; a new booking inside that window cancels
+      the countdown. A stopped env is started <b>15 minutes before</b> its next booking begins (right away if a
+      booking is already running). A running deployment delays the stop. The countdown is shown here and on the dashboard.
       Manual Stop/Start still works; the schedule simply carries on from the new state.
       {{if .AutoPower}}On since {{fmtTime .AutoSince}}.{{end}}</p>
     <form method="post" action="/admin/envs/auto"
-          onsubmit="return confirm('{{if .AutoPower}}Switch automatic stop/start OFF?{{else}}Switch automatic stop/start ON? Idle envs will be stopped in 15 minutes.{{end}}')">
+          onsubmit="return confirm('{{if .AutoPower}}Switch automatic stop/start OFF?{{else}}Switch automatic stop/start ON? Idle envs can be stopped 15 minutes from now.{{end}}')">
       {{if .AutoPower}}
         <input type="hidden" name="on" value="0">
         <button type="submit" class="btn small danger">Turn automation off</button>
@@ -74,7 +76,7 @@
                 </form>
               {{else}}
                 <form method="post" action="/admin/envs/stop"
-                      onsubmit="return confirm('Stop all containers of {{.Name}} (docker compose stop)?')">
+                      onsubmit="return confirm('Stop {{.Name}}?')">
                   <input type="hidden" name="env" value="{{.Name}}">
                   <button type="submit" class="btn small danger" {{if .BookedBy}}disabled title="booked right now"{{end}}>Stop</button>
                 </form>

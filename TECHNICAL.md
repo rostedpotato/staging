@@ -13,9 +13,11 @@ runbook operasional, lihat `README.md`.
   server terpisah, tidak ada frontend framework. Alasan: host staging sudah
   sangat sibuk (load ~9.6, RAM nyaris penuh saat platform ini dibuat) —
   stack harus seringan mungkin.
-- **Read-only terhadap staging** untuk semua hal selain deploy yang memang
-  disengaja lewat Jenkins. Discovery (`internal/discovery`) tidak pernah
-  menulis ke `/data/app`, nginx config, atau memanggil `docker` selain `ps`.
+- **Read-only terhadap staging** untuk semua hal selain (a) deploy lewat Jenkins
+  dan (b) stop/start env (`internal/discovery/lifecycle.go`, dipicu tombol admin
+  atau otomatisasi di `internal/web/auto_power.go`). Stop/start hanya memanggil
+  `docker inspect` dan `docker compose -p <project> stop|start` — tidak pernah
+  `down` atau `-v`. Discovery tidak pernah menulis ke `/data/app` atau nginx config.
 - **Semua state aplikasi (users, sessions, bookings, deployments, audit) ada
   di satu file SQLite** (`data/platform.db`), di-mount sebagai volume Docker
   agar persist antar restart/redeploy container.

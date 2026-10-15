@@ -11,9 +11,17 @@ import (
 	"parkee/staging-platform/internal/store"
 )
 
-// autoPowerGrace is both how long an env stays on after its last booking
-// ends, and how long before a booking starts a stopped env is switched on.
-const autoPowerGrace = 15 * time.Minute
+// autoStopWait is how long an env stays on after it became idle (its last
+// booking ended, auto power was switched on, or it was started) before the
+// stop countdown ends.
+const autoStopWait = 15 * time.Minute
+
+// autoStopLookahead: an env is only stopped when no booking begins within this
+// long after the stop. Otherwise it would be started again almost at once.
+const autoStopLookahead = 30 * time.Minute
+
+// autoStartLead is how long before a booking begins a stopped env is started.
+const autoStartLead = 15 * time.Minute
 
 // autoPowerTick is how often the scheduler looks at the bookings.
 const autoPowerTick = 30 * time.Second
@@ -43,13 +51,15 @@ type planInput struct {
 }
 
 // planFor decides the next automatic action for one env:
-//   - running, not booked: stop 15 min after it became idle. "Idle since" is
-//     the latest of: last booking end, auto power switched on, and the env
-//     being (re)started, so a manual start or enabling the feature always
-//     gives 15 min before anything is stopped. No stop if the next booking
-//     would need it started again right away.
-//   - stopped: start 15 min before the next booking, or now if a booking is
-//     already running (e.g. booked for today while it was stopped).
+//   - running, not booked: stop autoStopWait (15 min) after it became idle.
+//     "Idle since" is the latest of: last booking end, auto power switched on,
+//     and the env being (re)started, so a manual start or enabling the feature
+//     always gives 15 min before anything is stopped. The stop is only planned
+//     when no booking begins within autoStopLookahead (30 min) after the stop
+//     moment, counted from whichever is later: the planned stop or now. A new
+//     booking inside that window cancels the countdown.
+//   - stopped: start autoStartLead (15 min) before the next booking, or now if
+//     a booking is already running (e.g. booked for today while it was stopped).
 func planFor(in planInput, now time.Time) powerPlan {
 	if in.Desired == store.DesiredStopped {
 		switch {
@@ -57,7 +67,7 @@ func planFor(in planInput, now time.Time) powerPlan {
 			return powerPlan{Action: "start", At: now,
 				Reason: fmt.Sprintf("booked by %s now", in.Current.Username)}
 		case in.Next != nil:
-			return powerPlan{Action: "start", At: in.Next.Start.Add(-autoPowerGrace),
+			return powerPlan{Action: "start", At: in.Next.Start.Add(-autoStartLead),
 				Reason: fmt.Sprintf("booking by %s starts %s", in.Next.Username, in.Next.Start.Local().Format("2006-01-02 15:04"))}
 		}
 		return powerPlan{}
@@ -71,9 +81,15 @@ func planFor(in planInput, now time.Time) powerPlan {
 			idle = t
 		}
 	}
-	stopAt := idle.Add(autoPowerGrace)
-	if in.Next != nil && !stopAt.Before(in.Next.Start.Add(-autoPowerGrace)) {
-		return powerPlan{} // it would have to be started again right away
+	stopAt := idle.Add(autoStopWait)
+	if in.Next != nil {
+		quietFrom := stopAt
+		if quietFrom.Before(now) {
+			quietFrom = now // an overdue stop still needs a quiet 30 min from now
+		}
+		if in.Next.Start.Before(quietFrom.Add(autoStopLookahead)) {
+			return powerPlan{} // booking too close: keep the env on
+		}
 	}
 	reason := "no booking"
 	if !in.LastEnd.IsZero() && !in.LastEnd.Before(idle) {

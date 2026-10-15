@@ -31,8 +31,9 @@ type Slot struct {
 	CommitTime string    // author/commit time of HEAD
 	Services   []Service // deployable services in this slot
 
-	// Desired is the stored desired state ("running" | "stopped"). An env an
-	// admin switched off on purpose is "stopped", which is not a problem.
+	// Desired is the stored desired state ("running" | "stopped"). An env that
+	// was stopped on purpose (by an admin or by auto power) is "stopped",
+	// which is not a problem.
 	Desired string
 	// Transition is "stopping" or "starting" while a stop/start is in flight.
 	Transition string

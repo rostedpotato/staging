@@ -48,6 +48,38 @@ func TestPlanFor(t *testing.T) {
 				Next: res("b", t0.Add(20*time.Minute), t0.Add(5*time.Hour))},
 			action: "",
 		},
+		// Stop moment is t0+10m; the 30 min quiet window runs to t0+40m.
+		{
+			name: "booking begins 29 min after the stop moment: no stop",
+			in: planInput{Desired: store.DesiredRunning, LastEnd: t0.Add(-5 * time.Minute), AutoSince: t0.Add(-48 * time.Hour),
+				Next: res("b", t0.Add(39*time.Minute), t0.Add(5*time.Hour))},
+			action: "",
+		},
+		{
+			name: "booking begins exactly 30 min after the stop moment: stop",
+			in: planInput{Desired: store.DesiredRunning, LastEnd: t0.Add(-5 * time.Minute), AutoSince: t0.Add(-48 * time.Hour),
+				Next: res("b", t0.Add(40*time.Minute), t0.Add(5*time.Hour))},
+			action: "stop", at: t0.Add(10 * time.Minute),
+		},
+		// Idle for an hour already, so the stop is overdue. The quiet window
+		// then counts from now, not from the (past) stop moment.
+		{
+			name: "overdue stop, booking in 20 min: no stop",
+			in: planInput{Desired: store.DesiredRunning, LastEnd: t0.Add(-60 * time.Minute), AutoSince: t0.Add(-48 * time.Hour),
+				Next: res("b", t0.Add(20*time.Minute), t0.Add(5*time.Hour))},
+			action: "",
+		},
+		{
+			name: "overdue stop, booking in 31 min: stop now",
+			in: planInput{Desired: store.DesiredRunning, LastEnd: t0.Add(-60 * time.Minute), AutoSince: t0.Add(-48 * time.Hour),
+				Next: res("b", t0.Add(31*time.Minute), t0.Add(5*time.Hour))},
+			action: "stop", at: t0.Add(-45 * time.Minute),
+		},
+		{
+			name:   "stopped, booking in 10 min: start is already due",
+			in:     planInput{Desired: store.DesiredStopped, Next: res("b", t0.Add(10*time.Minute), t0.Add(5*time.Hour))},
+			action: "start", at: t0.Add(-5 * time.Minute),
+		},
 		{
 			name: "running, next booking tomorrow: stop",
 			in: planInput{Desired: store.DesiredRunning, LastEnd: t0.Add(-5 * time.Minute), AutoSince: t0.Add(-48 * time.Hour),

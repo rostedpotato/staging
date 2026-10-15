@@ -1,4 +1,5 @@
-// Command staging-platform serves the read-only staging dashboard (Phase 1).
+// Command staging-platform serves the staging self-service platform:
+// dashboard, bookings, deploys and env stop/start.
 package main
 
 import (

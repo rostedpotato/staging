@@ -14,7 +14,31 @@ This repository is built in 5 phases (see `../staging_self_service_platform_plan
 - Shows, per slot: container status/health (`docker ps`), current **branch +
   commit + version** (from the slot's git repo / `.env` `VITE_GIT_*`), and the
   public **domains** (parsed from nginx `sites-enabled`).
-- 100% **read-only** — it never changes anything on staging.
+- Read-only: the dashboard itself never changes anything on staging (deploys
+  and env stop/start are separate features, see below).
+
+## Env power — stop idle envs (admin only, `/admin/envs`)
+
+- **Stop / Start** buttons run `docker compose -p <project> stop|start` for the
+  whole env (the project name is read from the containers' compose labels, so no
+  directory or project name is configured). Never `down`, never `-v`: containers
+  stay, so data and Jenkins' `docker restart` keep working.
+- An env stopped on purpose shows grey **stopped**, not red down. WBO is served
+  by nginx and keeps being checked. Stop is refused while the env is booked or a
+  platform deployment is running; deploying watersheep/fisherman to a stopped
+  env is refused (WBO is allowed).
+- **Automatic stop/start** (toggle on the same page, default OFF), for staging
+  and automation envs alike:
+  - an env with no booking gets a **15 min** stop countdown after its last
+    booking ended (or after auto was switched on / the env was started);
+  - it is stopped only if **no booking begins within 30 min** after that
+    moment; a new booking in that window cancels the countdown;
+  - a stopped env is started **15 min before** its next booking (at once if a
+    booking is already running);
+  - a running platform deployment delays the stop; a failed action is retried
+    after 10 min; actions are audited as user `auto-power`.
+  - Countdowns are shown on dashboard cards and on `/admin/envs`.
+- Deploys started directly in Jenkins are invisible to the platform.
 
 ## Phase 2 — auth, RBAC, audit
 
@@ -79,7 +103,8 @@ docker compose up -d   # uses the loaded image (comment out `build: .` in
 - `./config.json` → `/app/config.json` (ro) — your configuration.
 - `./data` → `/app/data` — **persistent** SQLite DB (users, bookings,
   deployments, audit). Back this directory up.
-- `/var/run/docker.sock` (ro) — read `docker ps`/`inspect` for slot status.
+- `/var/run/docker.sock` (read-write) — `docker ps`/`inspect` for slot status,
+  and `docker compose stop|start` for the env power page.
 - `/data/app` (ro) — read slot git repos/`.env` for version info.
 - `/etc/nginx/sites-enabled` (ro) — read domain mappings per slot.
 
@@ -229,7 +254,10 @@ Two separate jobs:
 - **"a deployment is already in progress for this slot"** — a slot lock is held.
   It clears when the build finishes; check `/deployments` for the active one.
 - **Deploy blocked by booking** — the slot is booked by someone else (or you have
-  no booking and `requireBooking` is on). See `/bookings`.
+  no booking and `requireBooking` is on). Applies to staging and automation
+  envs alike. See `/bookings`.
+- **Deploy refused: "this env is stopped"** — an admin (or auto power) stopped
+  the env; start it on `/admin/envs` first. Only WBO can deploy while stopped.
 - **Stuck deployment** — the watcher times out after 60 min and marks it
   `error`, releasing the lock.
 

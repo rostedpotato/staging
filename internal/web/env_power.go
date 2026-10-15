@@ -13,9 +13,10 @@ import (
 	"parkee/staging-platform/internal/store"
 )
 
-// warmupWindow is how long a freshly started env may show "starting" while
-// watersheep boots (a few minutes) before a non-answering service counts as
-// a real problem again.
+// warmupWindow is the longest a freshly started env shows "starting" while
+// watersheep boots. After it, a non-answering service counts as a real
+// problem again. ("starting" normally ends sooner: as soon as both app
+// services answer.)
 const warmupWindow = 10 * time.Minute
 
 // powerState tracks one in-flight (or just finished) stop/start of an env.
@@ -151,7 +152,7 @@ func (s *Server) handleEnvPower(w http.ResponseWriter, r *http.Request, verb str
 			}
 		}
 	} else {
-		notice = fmt.Sprintf("Starting %s in the background. watersheep can take a few minutes to answer.", name)
+		notice = fmt.Sprintf("Starting %s in the background. watersheep needs a moment before it answers.", name)
 	}
 
 	if err := s.startPower(u, env, verb, "manual"); err != nil {

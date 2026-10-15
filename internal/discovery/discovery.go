@@ -1,4 +1,5 @@
-// Package discovery inspects the staging host (read-only) to build the list of
+// Package discovery inspects the staging host (read-only, except lifecycle.go
+// which stops/starts an env) to build the list of
 // slots, their services, versions, and public domains for the dashboard.
 package discovery
 
