@@ -197,6 +197,29 @@ func (s *Store) Release(id int64, status string) error {
 	return nil
 }
 
+// LastBookingEnds returns, per slot, when its most recent finished booking
+// ended: the planned end, or the release time if it was released early.
+func (s *Store) LastBookingEnds() (map[string]time.Time, error) {
+	s.ExpireDue()
+	rows, err := s.db.Query(`
+		SELECT slot, MAX(CASE WHEN released_at IS NOT NULL AND released_at < end_time
+		                      THEN released_at ELSE end_time END)
+		FROM reservations WHERE status != 'active' GROUP BY slot`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := map[string]time.Time{}
+	for rows.Next() {
+		var slot, end string
+		if err := rows.Scan(&slot, &end); err != nil {
+			return nil, err
+		}
+		out[slot] = parseTime(end)
+	}
+	return out, rows.Err()
+}
+
 // ExpireDue flags active reservations whose end_time has passed as expired.
 func (s *Store) ExpireDue() {
 	_, _ = s.db.Exec(`

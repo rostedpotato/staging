@@ -112,9 +112,16 @@ CREATE TABLE IF NOT EXISTS environments (
     -- off on purpose (idle env), so it is shown grey instead of red "down".
     -- Existing databases get this column from Open() (ensureColumn).
     desired_state TEXT NOT NULL DEFAULT 'running', -- running | stopped
+    desired_changed_at TEXT NOT NULL DEFAULT '',   -- when desired_state last changed
     first_seen TEXT NOT NULL,
     last_seen  TEXT NOT NULL,
     updated_at TEXT NOT NULL
+);
+
+-- Small key/value settings changed from the UI (e.g. auto stop/start on/off).
+CREATE TABLE IF NOT EXISTS app_settings (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL DEFAULT ''
 );
 
 -- One row per discovery run; result_json holds the proposed changes until an

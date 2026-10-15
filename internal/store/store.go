@@ -43,6 +43,9 @@ func Open(path string) (*Store, error) {
 	if err := st.ensureColumn("environments", "desired_state", "TEXT NOT NULL DEFAULT 'running'"); err != nil {
 		return nil, fmt.Errorf("add environments.desired_state: %w", err)
 	}
+	if err := st.ensureColumn("environments", "desired_changed_at", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return nil, fmt.Errorf("add environments.desired_changed_at: %w", err)
+	}
 	if err := st.fixLegacyUTCBookings(); err != nil {
 		return nil, fmt.Errorf("fix legacy UTC bookings: %w", err)
 	}

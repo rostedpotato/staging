@@ -130,6 +130,70 @@ func TestRequireBooking(t *testing.T) {
 	}
 }
 
+// Automation envs need a booking just like staging, and still use the
+// "-automation" Jenkins job once booked.
+func TestRequireBooking_Automation(t *testing.T) {
+	prov := &mockProvider{result: "SUCCESS"}
+	svc, st := newTestSvc(t, prov, true)
+	if err := st.ApplyEnvChanges([]store.EnvChange{{Name: "0vt", Server: store.ServerAutomation, Kind: "new"}}); err != nil {
+		t.Fatal(err)
+	}
+	alice := mkUser(t, st, "alice")
+	bob := mkUser(t, st, "bob")
+
+	req := Request{Slot: "0vt", Service: "ws", RefType: "branch", Ref: "m", UserID: alice.ID, Username: alice.Username}
+	if _, err := svc.Start(context.Background(), req); err != ErrNotBooked {
+		t.Fatalf("automation without booking: expected ErrNotBooked, got %v", err)
+	}
+	if prov.triggers != 0 {
+		t.Fatal("Jenkins must not be triggered without a booking")
+	}
+
+	if _, err := st.CreateReservation("0vt", alice.ID, alice.Username, "qa",
+		time.Now().Add(-time.Minute), time.Now().Add(time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	bobReq := req
+	bobReq.UserID, bobReq.Username = bob.ID, bob.Username
+	if _, err := svc.Start(context.Background(), bobReq); err != ErrBookedOther {
+		t.Fatalf("automation booked by alice, bob deploys: expected ErrBookedOther, got %v", err)
+	}
+
+	dep, err := svc.Start(context.Background(), req)
+	if err != nil {
+		t.Fatalf("automation with own booking: expected allowed, got %v", err)
+	}
+	if dep.JenkinsJob != "deploy-ws-automation" {
+		t.Fatalf("expected job deploy-ws-automation, got %q", dep.JenkinsJob)
+	}
+}
+
+// A deployment left queued/running by a previous platform run is picked up
+// again on start, finishes, and releases its slot lock.
+func TestResumeActive(t *testing.T) {
+	prov := &mockProvider{result: "SUCCESS"}
+	svc, st := newTestSvc(t, prov, false)
+	u := mkUser(t, st, "alice")
+	dep, err := st.CreateDeployment("ho", "ws", "branch", "m", u.ID, u.Username, "deploy-ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = st.SetQueue(dep.ID, "https://jenkins/queue/item/1")
+	noQueue, err := st.CreateDeployment("dev-08", "ws", "branch", "m", u.ID, u.Username, "deploy-ws")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if n := svc.ResumeActive(); n != 2 {
+		t.Fatalf("want 2 resumed, got %d", n)
+	}
+	waitStatus(t, st, dep.ID, store.DepSuccess)
+	waitStatus(t, st, noQueue.ID, store.DepError)
+	if _, err := st.CreateDeployment("ho", "ws", "branch", "m2", u.ID, u.Username, "deploy-ws"); err != nil {
+		t.Fatalf("slot lock should be released after resume, got %v", err)
+	}
+}
+
 func TestBookedByOtherBlocks(t *testing.T) {
 	prov := &mockProvider{result: "SUCCESS"}
 	svc, st := newTestSvc(t, prov, false) // booking not required

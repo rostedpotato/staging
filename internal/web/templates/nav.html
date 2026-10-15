@@ -14,3 +14,35 @@
   <a class="navlink" href="/logout">Logout</a>{{end}}
 </div>
 {{end}}
+
+{{/* Next automatic stop/start of an env, as a live countdown. Takes a powerPlan. */}}
+{{define "powerplan"}}
+{{if .Action}}
+<span class="autoplan {{.Action}}" title="{{.Reason}}">
+  auto {{.Action}} <span class="countdown" data-at="{{.At.UTC.Format "2006-01-02T15:04:05Z07:00"}}">{{fmtTime .At}}</span>
+</span>
+{{end}}
+{{end}}
+
+{{/* Ticks every .countdown once a second; the page's own refresh brings new plans. */}}
+{{define "countdownjs"}}
+<script>
+(function () {
+  function fmt(ms) {
+    if (ms <= 0) return "now";
+    var s = Math.floor(ms / 1000), d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600),
+        m = Math.floor(s % 3600 / 60), sec = s % 60;
+    function p(n) { return (n < 10 ? "0" : "") + n; }
+    return "in " + (d ? d + "d " : "") + (d || h ? h + "h " : "") + p(m) + "m " + p(sec) + "s";
+  }
+  function tick() {
+    var els = document.querySelectorAll(".countdown[data-at]");
+    for (var i = 0; i < els.length; i++) {
+      els[i].textContent = fmt(new Date(els[i].dataset.at) - Date.now());
+    }
+  }
+  tick();
+  setInterval(tick, 1000);
+})();
+</script>
+{{end}}

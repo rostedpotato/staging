@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"time"
 )
 
 const (
@@ -26,8 +27,10 @@ type Environment struct {
 	Status string
 	// DesiredState is "stopped" when an admin switched the env off on purpose.
 	DesiredState string
-	FirstSeen    string
-	LastSeen     string
+	// DesiredChangedAt is when DesiredState last changed (zero if never).
+	DesiredChangedAt time.Time
+	FirstSeen        string
+	LastSeen         string
 }
 
 // EnvChange is one row of a discovery diff.
@@ -42,7 +45,7 @@ type EnvChange struct {
 // ListEnvironments returns envs ordered by server then name. If server is
 // non-empty, only that server's envs are returned.
 func (s *Store) ListEnvironments(server string) ([]Environment, error) {
-	q := `SELECT name, server, ports, status, desired_state, first_seen, last_seen FROM environments`
+	q := `SELECT name, server, ports, status, desired_state, desired_changed_at, first_seen, last_seen FROM environments`
 	var args []any
 	if server != "" {
 		q += ` WHERE server = ?`
@@ -57,10 +60,11 @@ func (s *Store) ListEnvironments(server string) ([]Environment, error) {
 	var out []Environment
 	for rows.Next() {
 		var e Environment
-		var ports string
-		if err := rows.Scan(&e.Name, &e.Server, &ports, &e.Status, &e.DesiredState, &e.FirstSeen, &e.LastSeen); err != nil {
+		var ports, changed string
+		if err := rows.Scan(&e.Name, &e.Server, &ports, &e.Status, &e.DesiredState, &changed, &e.FirstSeen, &e.LastSeen); err != nil {
 			return nil, err
 		}
+		e.DesiredChangedAt = parseTime(changed)
 		e.Ports = map[string]int{}
 		_ = json.Unmarshal([]byte(ports), &e.Ports)
 		out = append(out, e)
@@ -89,8 +93,9 @@ func (s *Store) SetDesiredState(name, state string) error {
 	if state != DesiredRunning && state != DesiredStopped {
 		return errors.New("invalid desired state")
 	}
-	res, err := s.db.Exec(`UPDATE environments SET desired_state = ?, updated_at = ? WHERE name = ?`,
-		state, nowUTC(), name)
+	now := nowUTC()
+	res, err := s.db.Exec(`UPDATE environments SET desired_state = ?, desired_changed_at = ?, updated_at = ? WHERE name = ?`,
+		state, now, now, name)
 	if err != nil {
 		return err
 	}
@@ -162,6 +167,16 @@ func DiffEnvironments(stored []Environment, found []EnvChange, scanned map[strin
 	for _, f := range found {
 		seen[f.Name] = true
 		old, ok := byName[f.Name]
+		// A stopped container publishes no ports in `docker ps`, so a service
+		// that was found without a port keeps the one already stored.
+		ports := map[string]int{}
+		for svc, p := range old.Ports {
+			ports[svc] = p
+		}
+		for svc, p := range f.Ports {
+			ports[svc] = p
+		}
+		f.Ports = ports
 		c := EnvChange{Name: f.Name, Server: f.Server, Ports: f.Ports, OldPorts: old.Ports}
 		switch {
 		case !ok:

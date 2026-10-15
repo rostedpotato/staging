@@ -84,6 +84,7 @@
 <footer>
   <span>Read-only view · Phase 1 · no changes are made to staging.</span>
 </footer>
+{{template "countdownjs"}}
 </body>
 </html>
 
@@ -119,6 +120,7 @@
     {{else}}
       <span class="free">available</span>
     {{end}}
+    {{template "powerplan" .Plan}}
   </div>
 
   {{if .Domains}}

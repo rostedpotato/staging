@@ -49,6 +49,9 @@ func main() {
 
 	jc := jenkins.New(cfg.Deploy.JenkinsURL, cfg.Deploy.JenkinsUser, cfg.Deploy.JenkinsToken)
 	dep := deploy.New(cfg, st, jc)
+	if n := dep.ResumeActive(); n > 0 {
+		log.Printf("deploy: resumed %d deployment(s) left running by the previous start", n)
+	}
 	if cfg.Deploy.Enabled && (cfg.Deploy.JenkinsURL == "" || cfg.Deploy.JenkinsToken == "") {
 		log.Printf("WARNING: deploy.enabled but Jenkins URL/token missing -> deploys will fail")
 	}
@@ -71,6 +74,9 @@ func main() {
 	statusCtx, stopStatus := context.WithCancel(context.Background())
 	defer stopStatus()
 	srv.StartStatusLoop(statusCtx)
+	// Automatic stop/start of idle envs; does nothing until an admin switches
+	// it on at /admin/envs.
+	srv.StartAutoPowerLoop(statusCtx)
 
 	httpSrv := &http.Server{
 		Addr:    cfg.Listen,

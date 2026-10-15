@@ -34,6 +34,14 @@ func newTestServer(t *testing.T, slots ...string) (*httptest.Server, *store.Stor
 
 func newTestServerWith(t *testing.T, opt func(*testConfig), slots ...string) (*httptest.Server, *store.Store) {
 	t.Helper()
+	_, ts, st := newTestServerFull(t, opt, slots...)
+	return ts, st
+}
+
+// newTestServerFull also returns the *Server, for tests that drive background
+// loops (e.g. the auto power scheduler) directly.
+func newTestServerFull(t *testing.T, opt func(*testConfig), slots ...string) (*Server, *httptest.Server, *store.Store) {
+	t.Helper()
 	tc := testConfig{dockerBin: "true", sshBin: "/bin/false"}
 	if opt != nil {
 		opt(&tc)
@@ -77,7 +85,7 @@ func newTestServerWith(t *testing.T, opt func(*testConfig), slots ...string) (*h
 	srv.refreshStatus(context.Background())
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return ts, st
+	return srv, ts, st
 }
 
 // seedTestEnvs registers slots as active staging envs, the way an admin

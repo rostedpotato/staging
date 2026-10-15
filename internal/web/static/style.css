@@ -48,6 +48,9 @@ main { padding: 24px; }
 .badge.stopping, .badge.starting { background: var(--degraded); }
 .dot.stopped { background: var(--unknown); }
 .hint.err { color: #ffb4b4; }
+.autoplan { margin-left: auto; font-size: 12px; padding: 1px 8px; border-radius: 6px; border: 1px solid var(--line); background: #0c0e13; }
+.autoplan.stop { color: #ffd479; }
+.autoplan.start { color: #9be7c4; }
 .row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
 .row .k { color: var(--muted); }
 .row .v { text-align: right; word-break: break-all; }

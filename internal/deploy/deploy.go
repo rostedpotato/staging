@@ -72,8 +72,8 @@ func (s *Service) Start(ctx context.Context, req Request) (*store.Deployment, er
 		req.RefType = "branch"
 	}
 
-	// Automation slots use the "-automation" Jenkins jobs and are not subject
-	// to the deploy booking check.
+	// Automation envs use the "-automation" Jenkins jobs. The booking check
+	// applies to every env, staging and automation alike.
 	server, err := s.st.EnvironmentServer(req.Slot)
 	if err != nil {
 		return nil, err
@@ -89,17 +89,30 @@ func (s *Service) Start(ctx context.Context, req Request) (*store.Deployment, er
 			return nil, ErrEnvStopped
 		}
 	}
+	if err := s.checkBooking(req); err != nil {
+		return nil, err
+	}
 	job := svc.Job
 	if automation {
 		job += "-automation"
-	} else if err := s.checkBooking(req); err != nil {
-		return nil, err
 	}
 
 	dep, err := s.st.CreateDeployment(req.Slot, req.Service, req.RefType, req.Ref,
 		req.UserID, req.Username, job)
 	if err != nil {
 		return nil, err // includes ErrSlotBusy
+	}
+	// Check again now that the slot lock is held: an env stop marks the env
+	// stopped first and then looks for active deployments, so between the two
+	// checks one side always sees the other.
+	if req.Service != "wbo" {
+		if env, err := s.st.GetEnvironment(req.Slot); err != nil || (env != nil && env.DesiredState == store.DesiredStopped) {
+			_ = s.st.Finish(dep.ID, store.DepError, "env was stopped before the build was triggered")
+			if err != nil {
+				return nil, err
+			}
+			return nil, ErrEnvStopped
+		}
 	}
 
 	params := map[string]string{"ENV": req.Slot}
@@ -116,8 +129,27 @@ func (s *Service) Start(ctx context.Context, req Request) (*store.Deployment, er
 	}
 	_ = s.st.SetQueue(dep.ID, queueURL)
 
-	go s.watch(dep.ID, job, queueURL)
+	go s.watch(dep.ID, job, queueURL, 0)
 	return s.st.DeploymentByID(dep.ID)
+}
+
+// ResumeActive re-attaches a watcher to every deployment a previous platform
+// run left queued or running. Without it those stay "running" forever and
+// keep their slot locked (no deploys, and auto power never stops the env).
+func (s *Service) ResumeActive() int {
+	deps, err := s.st.ActiveDeployments()
+	if err != nil {
+		log.Printf("deploy: list active deployments: %v", err)
+		return 0
+	}
+	for _, d := range deps {
+		if d.QueueURL == "" {
+			s.fail(d.ID, "platform restarted before the build was queued in Jenkins")
+			continue
+		}
+		go s.watch(d.ID, d.JenkinsJob, d.QueueURL, d.BuildNumber.Int64)
+	}
+	return len(deps)
 }
 
 // ErrNoRollbackTarget is returned when no prior successful deploy exists.
@@ -170,16 +202,16 @@ func (s *Service) checkBooking(req Request) error {
 	return nil
 }
 
-// watch runs in the background: resolve the build number, stream console log,
-// and finalize status. It is resilient to transient Jenkins errors.
-func (s *Service) watch(depID int64, job, queueURL string) {
+// watch runs in the background: resolve the build number (unless already
+// known), stream console log, and finalize status. It is resilient to
+// transient Jenkins errors.
+func (s *Service) watch(depID int64, job, queueURL string, number int64) {
 	poll := time.Duration(s.cfg.Deploy.PollSeconds) * time.Second
 	deadline := time.Now().Add(60 * time.Minute)
 
 	// 1) Resolve queue -> build number.
-	var number int64
 	var buildURL string
-	for time.Now().Before(deadline) {
+	for number == 0 && time.Now().Before(deadline) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		n, url, err := s.prov.ResolveBuild(ctx, queueURL)
 		cancel()
@@ -197,7 +229,9 @@ func (s *Service) watch(depID int64, job, queueURL string) {
 		s.fail(depID, "timed out waiting for build to start")
 		return
 	}
-	_ = s.st.MarkRunning(depID, number, buildURL)
+	if buildURL != "" {
+		_ = s.st.MarkRunning(depID, number, buildURL)
+	}
 
 	// 2) Poll status + capture console until the build ends.
 	for time.Now().Before(deadline) {

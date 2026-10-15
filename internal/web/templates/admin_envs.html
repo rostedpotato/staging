@@ -24,14 +24,34 @@
       in the env folder. Containers are only stopped, never removed, so data and Jenkins deploys keep working.
       Stopping takes a while because watersheep and fisherman are force-killed after about 10 seconds each;
       after Start, watersheep can take a minute or more to answer. The web backoffice is served by nginx and stays up.
-      An env that is booked right now, or has a running deployment, is never stopped.
-      Nothing starts an env automatically yet: start it before its booking begins.</p>
+      An env that is booked right now, or has a running deployment, is never stopped.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Automatic stop/start —
+      {{if .AutoPower}}<span class="tag st-success">ON</span>{{else}}<span class="tag">OFF</span>{{end}}</h2>
+    <p class="hint">When on: an env with no booking is stopped <b>15 minutes</b> after its last booking ended
+      (or 15 minutes after this was switched on / the env was started, whichever is later), and a stopped env is
+      started <b>15 minutes before</b> its next booking begins (right away if a booking is already running).
+      A running deployment delays the stop. The countdown is shown here and on the dashboard.
+      Manual Stop/Start still works; the schedule simply carries on from the new state.
+      {{if .AutoPower}}On since {{fmtTime .AutoSince}}.{{end}}</p>
+    <form method="post" action="/admin/envs/auto"
+          onsubmit="return confirm('{{if .AutoPower}}Switch automatic stop/start OFF?{{else}}Switch automatic stop/start ON? Idle envs will be stopped in 15 minutes.{{end}}')">
+      {{if .AutoPower}}
+        <input type="hidden" name="on" value="0">
+        <button type="submit" class="btn small danger">Turn automation off</button>
+      {{else}}
+        <input type="hidden" name="on" value="1">
+        <button type="submit" class="btn small">Turn automation on</button>
+      {{end}}
+    </form>
   </section>
 
   <section class="panel">
     <h2>Envs</h2>
     <table class="audit">
-      <thead><tr><th>Env</th><th>Server</th><th>State</th><th>Booking</th><th>Action</th></tr></thead>
+      <thead><tr><th>Env</th><th>Server</th><th>State</th><th>Booking</th><th>Next automatic action</th><th>Action</th></tr></thead>
       <tbody>
         {{range .Rows}}
           <tr>
@@ -43,6 +63,7 @@
               {{if .BookedBy}}{{.BookedBy}} until {{fmtTime .BookedTill}}{{else}}free{{end}}
               {{if .NextBook}}<div class="hint">next: {{.NextBook}}</div>{{end}}
             </td>
+            <td>{{if .Plan.Action}}{{template "powerplan" .Plan}}<div class="hint">{{.Plan.Reason}}</div>{{else}}<span class="hint">—</span>{{end}}</td>
             <td class="actions">
               {{if .Busy}}
                 <span class="hint">working…</span>
@@ -53,7 +74,7 @@
                 </form>
               {{else}}
                 <form method="post" action="/admin/envs/stop"
-                      onsubmit="return confirm('Stop watersheep and fisherman of {{.Name}}?')">
+                      onsubmit="return confirm('Stop all containers of {{.Name}} (docker compose stop)?')">
                   <input type="hidden" name="env" value="{{.Name}}">
                   <button type="submit" class="btn small danger" {{if .BookedBy}}disabled title="booked right now"{{end}}>Stop</button>
                 </form>
@@ -67,11 +88,12 @@
             </td>
           </tr>
         {{else}}
-          <tr><td colspan="5" class="empty">No envs yet. Run discovery and save the result.</td></tr>
+          <tr><td colspan="6" class="empty">No envs yet. Run discovery and save the result.</td></tr>
         {{end}}
       </tbody>
     </table>
   </section>
 </main>
+{{template "countdownjs"}}
 </body>
 </html>

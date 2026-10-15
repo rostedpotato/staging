@@ -115,6 +115,7 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/admin/envs", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminEnvs)))
 	mux.Handle("/admin/envs/stop", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminEnvStop)))
 	mux.Handle("/admin/envs/start", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminEnvStart)))
+	mux.Handle("/admin/envs/auto", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminEnvAuto)))
 	mux.Handle("/admin/slots/toggle", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminSlotToggle)))
 	mux.Handle("/admin/discovery", s.auth.RequireAdmin(http.HandlerFunc(s.handleDiscoveryPage)))
 	mux.Handle("/admin/discovery/run", s.auth.RequireAdmin(http.HandlerFunc(s.handleDiscoveryRun)))
@@ -163,10 +164,12 @@ type pageData struct {
 	AutomationScannedAt string
 }
 
-// slotView pairs a discovered slot with its current active booking (if any).
+// slotView pairs a discovered slot with its current active booking (if any)
+// and, when auto power is on, the next automatic stop/start.
 type slotView struct {
 	discovery.Slot
 	Booking *store.Reservation
+	Plan    powerPlan
 }
 
 // StartStatusLoop checks every known env once synchronously (so the first
@@ -272,9 +275,10 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 			current[res.Slot] = &r
 		}
 	}
+	plans := s.powerPlans(now)
 	views := make([]slotView, 0, len(slots))
 	for _, sl := range slots {
-		views = append(views, slotView{Slot: sl, Booking: current[sl.Name]})
+		views = append(views, slotView{Slot: sl, Booking: current[sl.Name], Plan: plans[sl.Name]})
 	}
 
 	// Rolling 7-days-back .. 7-days-forward booking history, with exact
@@ -304,7 +308,7 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	if data.AutomationEnabled = len(autoSlots) > 0; data.AutomationEnabled {
 		autoViews := make([]slotView, 0, len(autoSlots))
 		for _, sl := range autoSlots {
-			autoViews = append(autoViews, slotView{Slot: sl, Booking: current[sl.Name]})
+			autoViews = append(autoViews, slotView{Slot: sl, Booking: current[sl.Name], Plan: plans[sl.Name]})
 		}
 		data.AutomationSlots = autoViews
 		data.AutomationScannedAt = data.ScannedAt

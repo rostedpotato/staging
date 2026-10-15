@@ -147,6 +147,27 @@ func TestEnvPower_RefusesBookedEnv(t *testing.T) {
 	}
 }
 
+func TestEnvPower_RefusesWhileDeploying(t *testing.T) {
+	bin, logFile := fakeDockerBin(t)
+	ts, st := newTestServerWith(t, func(c *testConfig) { c.dockerBin = bin }, "dev-04")
+	admin := provisionAndLogin(t, ts, st, "boss", store.RoleAdmin)
+	u, _ := st.UserByUsername("boss")
+	if _, err := st.CreateDeployment("dev-04", "ws", "branch", "main", u.ID, "boss", "deploy-ws"); err != nil {
+		t.Fatal(err)
+	}
+	loc := locationOf(t, post(t, admin, ts.URL+"/admin/envs/stop", url.Values{"env": {"dev-04"}}))
+	if !strings.Contains(loc, "error=") || !strings.Contains(loc, "deployment") {
+		t.Fatalf("stop during a deploy must be refused, got %s", loc)
+	}
+	time.Sleep(200 * time.Millisecond)
+	if n := len(composeCalls(logFile)); n != 0 {
+		t.Fatalf("no compose command may run during a deploy, saw %d", n)
+	}
+	if e, _ := st.GetEnvironment("dev-04"); e.DesiredState != store.DesiredRunning {
+		t.Fatal("desired state must be back to running after a refused stop")
+	}
+}
+
 func TestEnvPower_UnknownEnv(t *testing.T) {
 	ts, st := newTestServer(t, "dev-04")
 	admin := provisionAndLogin(t, ts, st, "boss", store.RoleAdmin)
@@ -175,6 +196,11 @@ func TestEnvPower_FailureIsReportedAndAudited(t *testing.T) {
 	})
 	if !strings.Contains(body(t, admin, ts.URL+"/admin/envs"), "last action failed") {
 		t.Fatal("failure should be visible on /admin/envs")
+	}
+	// A failed stop must not leave the env marked stopped (that would block
+	// deploys and hide a running env as "stopped").
+	if e, _ := st.GetEnvironment("dev-04"); e.DesiredState != store.DesiredRunning {
+		t.Fatalf("failed stop left desired=%s", e.DesiredState)
 	}
 }
 

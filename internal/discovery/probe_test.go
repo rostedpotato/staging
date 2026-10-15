@@ -240,6 +240,22 @@ func TestDiffEnvironments(t *testing.T) {
 	}
 }
 
+// A stopped env's containers show no ports in `docker ps`; discovery must not
+// wipe the stored ports (that would break its status checks once started).
+func TestDiffEnvironments_StoppedContainersKeepPorts(t *testing.T) {
+	stored := []store.Environment{{Name: "06r", Server: store.ServerStaging, Status: store.EnvActive,
+		Ports: map[string]int{"watersheep": 9007, "fisherman": 4007}}}
+	ps := "watersheep-06r|\nfisherman-06r|\n"
+	found := parseDockerPs(ps, store.ServerStaging, "-", []string{"watersheep", "fisherman"})
+	diff := store.DiffEnvironments(stored, found, map[string]bool{store.ServerStaging: true})
+	if len(diff) != 1 || diff[0].Kind != "unchanged" {
+		t.Fatalf("stopped env should be unchanged, got %+v", diff)
+	}
+	if diff[0].Ports["watersheep"] != 9007 || diff[0].Ports["fisherman"] != 4007 {
+		t.Fatalf("ports lost: %v", diff[0].Ports)
+	}
+}
+
 func TestWBOURLsFor(t *testing.T) {
 	// Real nginx names for env 06r: public, a second public domain, an internal one.
 	domains := []string{"pos-staging-06r.parkee.app", "pos-staging-06r.pos-parkee.local", "pos-staging-06r.sistemparkiran.com"}
