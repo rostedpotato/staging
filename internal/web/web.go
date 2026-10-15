@@ -151,10 +151,12 @@ type pageData struct {
 	Error           string
 	Username        string
 	IsAdmin         bool
-	BookingHistory  []store.Reservation
+	BookingHistory  []historyRow
 	HistorySlot     string
 	HistorySort     string
+	HistoryShow     string // active (default) | past | released | all
 	HistorySlotOpts []string
+	Matrix          matrixData
 
 	// Automation* describe the staging-automation envs (0pv/0vt/076), listed
 	// in config and checked by curl. AutomationEnabled is false when no
@@ -281,24 +283,46 @@ func (s *Server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		views = append(views, slotView{Slot: sl, Booking: current[sl.Name], Plan: plans[sl.Name]})
 	}
 
-	// Rolling 7-days-back .. 7-days-forward booking history, with exact
-	// times (a booking can be released before its whole-day window ends).
-	// Filterable by slot and sortable, same pattern as /deployments.
+	// Rolling 7-days-back .. 7-days-forward booking window. The matrix shows
+	// every env at a glance; the table below it lists the bookings (back-to-back
+	// days of one person merged into one row) with the release time, filterable
+	// by env and status and sortable.
 	historySlot := r.URL.Query().Get("hslot")
 	historySort := r.URL.Query().Get("hsort")
 	if historySort == "" {
 		historySort = "date_desc"
 	}
-	history, _ := s.st.ListHistory(now.AddDate(0, 0, -7), now.AddDate(0, 0, 7), historySlot, historySort)
+	historyShow := r.URL.Query().Get("hshow")
+	switch historyShow {
+	case "past", "released", "all":
+	default:
+		historyShow = "active"
+	}
+	from := midnight(now).AddDate(0, 0, -historyDaysBack)
+	to := midnight(now).AddDate(0, 0, historyDaysFwd+1)
+	window, _ := s.st.ListHistory(from, to, "", "date_asc")
+	var tableSrc []store.Reservation
+	for _, res := range window {
+		if historySlot == "" || res.Slot == historySlot {
+			tableSrc = append(tableSrc, res)
+		}
+	}
+	var meID int64
+	if u != nil {
+		meID = u.ID
+	}
 
+	slotOpts := s.slotNames()
 	data := pageData{
 		Slots:           views,
 		ScannedAt:       statusAt.Local().Format("2006-01-02 15:04:05"),
 		RefreshSeconds:  s.cfg.Discovery.StatusSeconds,
-		BookingHistory:  history,
+		BookingHistory:  filterHistory(groupHistory(tableSrc, now, historySort), historyShow),
 		HistorySlot:     historySlot,
 		HistorySort:     historySort,
-		HistorySlotOpts: s.slotNames(),
+		HistoryShow:     historyShow,
+		HistorySlotOpts: slotOpts,
+		Matrix:          buildMatrix(slotOpts, window, now, meID),
 	}
 	if u != nil {
 		data.Username = u.Username

@@ -42,8 +42,45 @@
   {{end}}
 
   <section class="panel bookinghistory">
-    <h2>Booking history (7 days back &ndash; 7 days forward)</h2>
+    <h2>Booking calendar (7 days back &ndash; 7 days forward)</h2>
+    <p class="hint">One row per env, one column per day. Hover a bar for the details. Greyed bars are over, yellow outlines are yours.
+      Bookings are per whole day; a booking released early only fills the days it was really held.</p>
+    <div class="matrix-wrap">
+    <table class="matrix">
+      <thead>
+        <tr>
+          <th class="env"></th>
+          {{range .Matrix.Days}}<th class="day{{if .Weekend}} wk{{end}}{{if .Today}} today{{end}}"><span>{{.Weekday}}</span>{{.Label}}</th>{{end}}
+        </tr>
+      </thead>
+      <tbody>
+        {{range .Matrix.Rows}}
+        <tr>
+          <th class="env">{{.Env}}</th>
+          {{range .Cells}}
+            {{if .Hue}}<td colspan="{{.Span}}" class="{{.Class}}" style="--hue: {{.Hue}}" title="{{.Tip}}"><span>{{.User}}</span></td>
+            {{else}}<td class="{{.Class}}"></td>{{end}}
+          {{end}}
+        </tr>
+        {{else}}
+        <tr><td class="empty">No envs.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+    </div>
+  </section>
+
+  <section class="panel bookinghistory">
+    <h2>Bookings</h2>
     <form method="get" action="/" class="bookform filterform">
+      <label>Show
+        <select name="hshow" onchange="this.form.submit()">
+          <option value="active" {{if eq .HistoryShow "active"}}selected{{end}}>Running &amp; upcoming</option>
+          <option value="past" {{if eq .HistoryShow "past"}}selected{{end}}>Finished</option>
+          <option value="released" {{if eq .HistoryShow "released"}}selected{{end}}>Released early</option>
+          <option value="all" {{if eq .HistoryShow "all"}}selected{{end}}>All</option>
+        </select>
+      </label>
       <label>Env
         <select name="hslot" onchange="this.form.submit()">
           <option value="">All envs</option>
@@ -62,19 +99,19 @@
       <noscript><button type="submit" class="btn small">Apply</button></noscript>
     </form>
     <table class="audit">
-      <thead><tr><th>Slot</th><th>User</th><th>From</th><th>Until</th><th>Status</th><th>Purpose</th></tr></thead>
+      <thead><tr><th>Env</th><th>User</th><th>Booked days</th><th>Released</th><th>Status</th><th>Purpose</th></tr></thead>
       <tbody>
         {{range .BookingHistory}}
           <tr>
             <td><b>{{.Slot}}</b></td>
-            <td>{{.Username}}</td>
-            <td>{{fmtTime .Start}}</td>
-            <td>{{if not .ReleasedAt.IsZero}}{{fmtTime .ReleasedAt}}{{else}}{{fmtTime .End}}{{end}}</td>
-            <td><span class="tag">{{.Status}}</span></td>
+            <td>{{.Username}}<div class="hint">{{.CreatedNote}}</div></td>
+            <td>{{.Dates}}</td>
+            <td>{{if .ReleasedText}}{{.ReleasedText}}{{else}}<span class="hint">—</span>{{end}}</td>
+            <td><span class="tag hist-{{.Status}}">{{.Status}}</span></td>
             <td>{{.Purpose}}</td>
           </tr>
         {{else}}
-          <tr><td colspan="6" class="empty">No bookings in this window.</td></tr>
+          <tr><td colspan="6" class="empty">No bookings here. Change &ldquo;Show&rdquo; to see finished or released ones.</td></tr>
         {{end}}
       </tbody>
     </table>

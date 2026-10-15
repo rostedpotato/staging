@@ -44,6 +44,20 @@ func parseTime(s string) time.Time {
 	return t
 }
 
+// EffectiveEnd is when the booking really stopped holding the env: its planned
+// end, or the release time if it was released earlier. An expired booking also
+// carries a released_at (the moment the platform noticed it was over), which
+// is later than the planned end and must never be shown as the end.
+func (r Reservation) EffectiveEnd() time.Time {
+	if !r.ReleasedAt.IsZero() && r.ReleasedAt.Before(r.End) {
+		return r.ReleasedAt
+	}
+	return r.End
+}
+
+// CreatedTime is when the booking was made.
+func (r Reservation) CreatedTime() time.Time { return parseTime(r.CreatedAt) }
+
 // CreateReservation inserts an active booking after checking for overlap with
 // other active bookings of the same slot. The check + insert run in one
 // transaction so two simultaneous requests cannot both succeed.

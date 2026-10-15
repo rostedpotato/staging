@@ -305,8 +305,8 @@
           <tr>
             <td><b>{{.Slot}}</b></td>
             <td>{{.Username}}</td>
-            <td>{{fmtTime .Start}}</td>
-            <td>{{fmtTime .End}}</td>
+            <td>{{fmtDate .Start}}</td>
+            <td>{{fmtDate .End}}</td>
             <td>{{.Purpose}}</td>
             <td>
               {{if or (eq .Username $.Username) $.IsAdmin}}
@@ -334,8 +334,8 @@
         {{range .Mine}}
           <tr>
             <td>{{.Slot}}</td>
-            <td>{{fmtTime .Start}}</td>
-            <td>{{if not .ReleasedAt.IsZero}}{{fmtTime .ReleasedAt}}{{else}}{{fmtTime .End}}{{end}}</td>
+            <td>{{fmtDate .Start}}</td>
+            <td>{{if or (eq .Status "released") (eq .Status "overridden")}}{{fmtTime .EffectiveEnd}} <span class="hint">(released)</span>{{else}}{{fmtDate .End}}{{end}}</td>
             <td><span class="tag">{{.Status}}</span></td>
             <td>{{.Purpose}}</td>
           </tr>
