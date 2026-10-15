@@ -60,6 +60,7 @@ func newDeployTestServer(t *testing.T, slots ...string) (*httptest.Server, *stor
 	cfg.Deploy.RequireBooking = false
 	cfg.Deploy.Services = []config.DeployService{
 		{Key: "ws", Label: "WS", Job: "deploy-ws", TagParam: true},
+		{Key: "wbo", Label: "WBO", Job: "deploy-wbo", TagParam: false},
 	}
 
 	a := auth.New(cfg, st)

@@ -36,13 +36,18 @@ main { padding: 24px; }
 .card.status-degraded { border-left-color: var(--degraded); }
 .card.status-down { border-left-color: var(--down); }
 .card.status-unknown { border-left-color: var(--unknown); }
+.card.status-stopped { border-left-color: var(--unknown); opacity: .8; }
+.card.status-stopping, .card.status-starting { border-left-color: var(--degraded); }
 .card-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .card-head h2 { margin: 0; font-size: 16px; }
 .badge { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 2px 8px; border-radius: 999px; color: #0b0d12; }
 .badge.healthy { background: var(--healthy); }
 .badge.degraded { background: var(--degraded); }
 .badge.down { background: var(--down); }
-.badge.unknown { background: var(--unknown); }
+.badge.unknown, .badge.stopped { background: var(--unknown); }
+.badge.stopping, .badge.starting { background: var(--degraded); }
+.dot.stopped { background: var(--unknown); }
+.hint.err { color: #ffb4b4; }
 .row { display: flex; justify-content: space-between; gap: 12px; padding: 2px 0; }
 .row .k { color: var(--muted); }
 .row .v { text-align: right; word-break: break-all; }

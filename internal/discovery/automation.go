@@ -18,7 +18,7 @@ func (d *Discoverer) StatusAutomation(ctx context.Context, auto config.Automatio
 	slots := make([]Slot, 0, len(envs))
 	for _, e := range envs {
 		urls := wboURLsFor(nil, auto.WBOURL, e.Name)
-		slot := Slot{Name: e.Name, Services: append(d.portServices(e.Ports), newWBOService(urls))}
+		slot := Slot{Name: e.Name, Desired: e.DesiredState, Services: append(d.portServices(e.Ports), newWBOService(urls))}
 		for _, raw := range urls {
 			if u, err := url.Parse(raw); err == nil && u.Host != "" {
 				slot.Domains = append(slot.Domains, u.Host)
@@ -28,6 +28,9 @@ func (d *Discoverer) StatusAutomation(ctx context.Context, auto config.Automatio
 	}
 	sort.Slice(slots, func(i, j int) bool { return slots[i].Name < slots[j].Name })
 	probeServices(ctx, auto.Host, slots)
+	for i := range slots {
+		slots[i].markStopped()
+	}
 	return slots
 }
 

@@ -13,16 +13,21 @@ const (
 
 	EnvActive  = "active"
 	EnvMissing = "missing"
+
+	DesiredRunning = "running"
+	DesiredStopped = "stopped"
 )
 
 // Environment is one known env (slot) and the ports its services publish.
 type Environment struct {
-	Name      string
-	Server    string
-	Ports     map[string]int
-	Status    string
-	FirstSeen string
-	LastSeen  string
+	Name   string
+	Server string
+	Ports  map[string]int
+	Status string
+	// DesiredState is "stopped" when an admin switched the env off on purpose.
+	DesiredState string
+	FirstSeen    string
+	LastSeen     string
 }
 
 // EnvChange is one row of a discovery diff.
@@ -37,7 +42,7 @@ type EnvChange struct {
 // ListEnvironments returns envs ordered by server then name. If server is
 // non-empty, only that server's envs are returned.
 func (s *Store) ListEnvironments(server string) ([]Environment, error) {
-	q := `SELECT name, server, ports, status, first_seen, last_seen FROM environments`
+	q := `SELECT name, server, ports, status, desired_state, first_seen, last_seen FROM environments`
 	var args []any
 	if server != "" {
 		q += ` WHERE server = ?`
@@ -53,7 +58,7 @@ func (s *Store) ListEnvironments(server string) ([]Environment, error) {
 	for rows.Next() {
 		var e Environment
 		var ports string
-		if err := rows.Scan(&e.Name, &e.Server, &ports, &e.Status, &e.FirstSeen, &e.LastSeen); err != nil {
+		if err := rows.Scan(&e.Name, &e.Server, &ports, &e.Status, &e.DesiredState, &e.FirstSeen, &e.LastSeen); err != nil {
 			return nil, err
 		}
 		e.Ports = map[string]int{}
@@ -61,6 +66,38 @@ func (s *Store) ListEnvironments(server string) ([]Environment, error) {
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+// GetEnvironment returns one env by name, or nil if it is not in the inventory.
+func (s *Store) GetEnvironment(name string) (*Environment, error) {
+	envs, err := s.ListEnvironments("")
+	if err != nil {
+		return nil, err
+	}
+	for i := range envs {
+		if envs[i].Name == name {
+			return &envs[i], nil
+		}
+	}
+	return nil, nil
+}
+
+// SetDesiredState records whether an env should be running or deliberately
+// stopped. It reports sql.ErrNoRows-like absence as an error so a typo'd env
+// name can't silently do nothing.
+func (s *Store) SetDesiredState(name, state string) error {
+	if state != DesiredRunning && state != DesiredStopped {
+		return errors.New("invalid desired state")
+	}
+	res, err := s.db.Exec(`UPDATE environments SET desired_state = ?, updated_at = ? WHERE name = ?`,
+		state, nowUTC(), name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return errors.New("unknown env " + name)
+	}
+	return nil
 }
 
 // EnvironmentServer returns which server an env lives on, or "" if unknown.

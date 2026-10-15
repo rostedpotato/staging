@@ -9,9 +9,10 @@ COPY internal ./internal
 RUN CGO_ENABLED=0 go build -trimpath -ldflags "-s -w" -o /out/staging-platform .
 
 # --- runtime stage ---
-# We need the docker CLI + git to run READ-ONLY discovery commands on the host.
+# docker CLI + git run discovery; docker-cli-compose provides `docker compose`,
+# used only to stop/start an env's watersheep and fisherman (env power page).
 FROM alpine:3.20
-RUN apk add --no-cache docker-cli git ca-certificates tzdata openssh-client
+RUN apk add --no-cache docker-cli docker-cli-compose git ca-certificates tzdata openssh-client
 WORKDIR /app
 COPY --from=build /out/staging-platform /app/staging-platform
 COPY config.example.json /app/config.example.json

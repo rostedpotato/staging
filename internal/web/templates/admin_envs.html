@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Env power — Staging Platform</title>
+  <meta http-equiv="refresh" content="20">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <h1>Env power (stop idle envs)</h1>
+    {{template "navlinks" .}}
+  </div>
+  {{if .Notice}}<div class="banner ok">{{.Notice}}</div>{{end}}
+  {{if .Error}}<div class="banner error">{{.Error}}</div>{{end}}
+</header>
+<main>
+  <section class="panel">
+    <h2>How it works</h2>
+    <p class="hint">Stop and Start run <code>docker compose stop</code> / <code>docker compose start</code>
+      for the whole env (watersheep, fisherman, database, redis, kafka, minio, ...), the same as running them
+      in the env folder. Containers are only stopped, never removed, so data and Jenkins deploys keep working.
+      Stopping takes a while because watersheep and fisherman are force-killed after about 10 seconds each;
+      after Start, watersheep can take a minute or more to answer. The web backoffice is served by nginx and stays up.
+      An env that is booked right now, or has a running deployment, is never stopped.
+      Nothing starts an env automatically yet: start it before its booking begins.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Envs</h2>
+    <table class="audit">
+      <thead><tr><th>Env</th><th>Server</th><th>State</th><th>Booking</th><th>Action</th></tr></thead>
+      <tbody>
+        {{range .Rows}}
+          <tr>
+            <td><b>{{.Name}}</b></td>
+            <td>{{.Server}}</td>
+            <td><span class="badge {{.Overall}}">{{.Overall}}</span>
+              {{if .Error}}<div class="hint err">last action failed: {{.Error}}</div>{{end}}</td>
+            <td>
+              {{if .BookedBy}}{{.BookedBy}} until {{fmtTime .BookedTill}}{{else}}free{{end}}
+              {{if .NextBook}}<div class="hint">next: {{.NextBook}}</div>{{end}}
+            </td>
+            <td class="actions">
+              {{if .Busy}}
+                <span class="hint">working…</span>
+              {{else if eq .Desired "stopped"}}
+                <form method="post" action="/admin/envs/start">
+                  <input type="hidden" name="env" value="{{.Name}}">
+                  <button type="submit" class="btn small">Start</button>
+                </form>
+              {{else}}
+                <form method="post" action="/admin/envs/stop"
+                      onsubmit="return confirm('Stop watersheep and fisherman of {{.Name}}?')">
+                  <input type="hidden" name="env" value="{{.Name}}">
+                  <button type="submit" class="btn small danger" {{if .BookedBy}}disabled title="booked right now"{{end}}>Stop</button>
+                </form>
+                {{if eq .Overall "down"}}
+                <form method="post" action="/admin/envs/start">
+                  <input type="hidden" name="env" value="{{.Name}}">
+                  <button type="submit" class="btn small">Start</button>
+                </form>
+                {{end}}
+              {{end}}
+            </td>
+          </tr>
+        {{else}}
+          <tr><td colspan="5" class="empty">No envs yet. Run discovery and save the result.</td></tr>
+        {{end}}
+      </tbody>
+    </table>
+  </section>
+</main>
+</body>
+</html>

@@ -57,10 +57,14 @@ func (d *Discoverer) StatusStaging(ctx context.Context, envs []store.Environment
 			Version:    version,
 			CommitTime: commitTime,
 			Services:   append(services, wbo),
+			Desired:    e.DesiredState,
 		})
 	}
 	sort.Slice(slots, func(i, j int) bool { return slots[i].Name < slots[j].Name })
 	probeServices(ctx, d.cfg.ProbeHost, slots)
+	for i := range slots {
+		slots[i].markStopped()
+	}
 	return slots
 }
 

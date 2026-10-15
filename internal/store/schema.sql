@@ -108,6 +108,10 @@ CREATE TABLE IF NOT EXISTS environments (
     server     TEXT NOT NULL,                  -- staging | automation
     ports      TEXT NOT NULL DEFAULT '{}',     -- JSON {"watersheep":9020,...}
     status     TEXT NOT NULL DEFAULT 'active', -- active | missing
+    -- What the platform wants: 'stopped' = watersheep/fisherman were switched
+    -- off on purpose (idle env), so it is shown grey instead of red "down".
+    -- Existing databases get this column from Open() (ensureColumn).
+    desired_state TEXT NOT NULL DEFAULT 'running', -- running | stopped
     first_seen TEXT NOT NULL,
     last_seen  TEXT NOT NULL,
     updated_at TEXT NOT NULL

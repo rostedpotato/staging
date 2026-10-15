@@ -44,6 +44,10 @@ type Server struct {
 
 	// discoverMu makes sure only one admin-triggered discovery runs at a time.
 	discoverMu sync.Mutex
+
+	// powerMu guards power: the in-flight stop/start per env (see env_power.go).
+	powerMu sync.Mutex
+	power   map[string]*powerState
 }
 
 func NewServer(cfg *config.Config, disc *discovery.Discoverer, a *auth.Authenticator, st *store.Store, dep *deploy.Service) (*Server, error) {
@@ -65,7 +69,8 @@ func NewServer(cfg *config.Config, disc *discovery.Discoverer, a *auth.Authentic
 	if err != nil {
 		return nil, err
 	}
-	return &Server{cfg: cfg, disc: disc, auth: a, st: st, deploy: dep, tmpl: tmpl}, nil
+	return &Server{cfg: cfg, disc: disc, auth: a, st: st, deploy: dep, tmpl: tmpl,
+		power: map[string]*powerState{}}, nil
 }
 
 func (s *Server) renderBookings(w http.ResponseWriter, data bookingsPage) {
@@ -107,6 +112,9 @@ func (s *Server) Handler() http.Handler {
 	mux.Handle("/admin/users/status", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminUserStatus)))
 	mux.Handle("/admin/users/reset-password", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminUserResetPassword)))
 	mux.Handle("/admin/slots", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminSlots)))
+	mux.Handle("/admin/envs", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminEnvs)))
+	mux.Handle("/admin/envs/stop", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminEnvStop)))
+	mux.Handle("/admin/envs/start", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminEnvStart)))
 	mux.Handle("/admin/slots/toggle", s.auth.RequireAdmin(http.HandlerFunc(s.handleAdminSlotToggle)))
 	mux.Handle("/admin/discovery", s.auth.RequireAdmin(http.HandlerFunc(s.handleDiscoveryPage)))
 	mux.Handle("/admin/discovery/run", s.auth.RequireAdmin(http.HandlerFunc(s.handleDiscoveryRun)))
@@ -194,6 +202,8 @@ func (s *Server) refreshStatus(ctx context.Context) {
 	s.statusAt = time.Now()
 	s.stagingStatus = stagingSlots
 	s.automationStatus = automationSlots
+	s.settleWarmups(stagingSlots)
+	s.settleWarmups(automationSlots)
 }
 
 func activeOnly(envs []store.Environment) []store.Environment {
@@ -222,6 +232,7 @@ func (s *Server) visible(slots []discovery.Slot) []discovery.Slot {
 		if s.cfg.Hidden(sl.Name) || dbHidden[sl.Name] {
 			continue
 		}
+		s.applyTransition(&sl)
 		out = append(out, sl)
 	}
 	return out

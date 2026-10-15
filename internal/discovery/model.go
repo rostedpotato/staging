@@ -30,10 +30,62 @@ type Slot struct {
 	Version    string    // VITE_GIT_FULL_VERSION or tag, if available
 	CommitTime string    // author/commit time of HEAD
 	Services   []Service // deployable services in this slot
+
+	// Desired is the stored desired state ("running" | "stopped"). An env an
+	// admin switched off on purpose is "stopped", which is not a problem.
+	Desired string
+	// Transition is "stopping" or "starting" while a stop/start is in flight.
+	Transition string
+}
+
+// IsStopped reports whether the env was stopped on purpose.
+func (s Slot) IsStopped() bool { return s.Desired == "stopped" }
+
+// isStatic is true for the WBO entry: nginx serves it, so it keeps working
+// while the app containers are stopped.
+func (v Service) isStatic() bool { return len(v.wboURLs) > 0 || v.Name == "wbo" }
+
+// markStopped relabels port-backed services that are not answering as
+// "stopped" (grey) instead of "down" (red) on an env stopped on purpose.
+// The WBO entry is left alone: it is still checked and must stay green.
+func (s *Slot) markStopped() {
+	if !s.IsStopped() {
+		return
+	}
+	for i := range s.Services {
+		svc := &s.Services[i]
+		if svc.isStatic() || svc.State == "running" {
+			continue
+		}
+		svc.State, svc.Status = "stopped", "stopped (idle)"
+	}
 }
 
 // Overall reports the coarse health of a slot for the dashboard badge.
 func (s Slot) Overall() string {
+	if s.Transition != "" {
+		return s.Transition
+	}
+	if s.IsStopped() {
+		appsStopped, staticDown := true, false
+		for _, svc := range s.Services {
+			switch {
+			case svc.isStatic():
+				staticDown = staticDown || (svc.State != "running" && svc.State != "unknown")
+			case svc.State == "running":
+				appsStopped = false
+			}
+		}
+		// Only when every app container is really off. If one is still up
+		// (stop half-failed, or Jenkins restarted it) fall through and show
+		// the real state instead of hiding it.
+		if appsStopped {
+			if staticDown {
+				return "down"
+			}
+			return "stopped"
+		}
+	}
 	if len(s.Services) == 0 {
 		return "unknown"
 	}

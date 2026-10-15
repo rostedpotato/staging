@@ -87,6 +87,22 @@ func (d *Discoverer) DiscoverStaging(ctx context.Context) ([]store.EnvChange, er
 // over SSH. BatchMode makes ssh fail instead of prompting for a password.
 // The host key is learned on first connect and pinned in KnownHostsPath.
 func (d *Discoverer) DiscoverAutomation(ctx context.Context, cfg config.Automation) ([]store.EnvChange, error) {
+	args, err := sshArgs(cfg, "docker ps -a --format '"+dockerPsFormat+"'")
+	if err != nil {
+		return nil, err
+	}
+	out, err := run(ctx, cfg.SSH.Bin, args...)
+	if err != nil {
+		return nil, fmt.Errorf("ssh %s@%s: %w", cfg.SSH.User, cfg.Host, err)
+	}
+	return parseDockerPs(out, store.ServerAutomation, "-"+cfg.ContainerInfix, d.cfg.Services), nil
+}
+
+// sshArgs builds the ssh argument list that runs remoteCmd on the automation
+// server. The remote shell receives remoteCmd as one string, so the caller is
+// responsible for quoting anything inside it. BatchMode makes ssh fail instead
+// of prompting; the host key is learned on first connect and pinned.
+func sshArgs(cfg config.Automation, remoteCmd string) ([]string, error) {
 	if cfg.Host == "" {
 		return nil, fmt.Errorf("automation.host is not set")
 	}
@@ -100,18 +116,16 @@ func (d *Discoverer) DiscoverAutomation(ctx context.Context, cfg config.Automati
 	if cfg.SSH.KeyPath != "" {
 		args = append(args, "-i", cfg.SSH.KeyPath, "-o", "IdentitiesOnly=yes")
 	}
-	// The remote shell receives this single string, so the format is quoted.
-	args = append(args, cfg.SSH.User+"@"+cfg.Host, "docker ps -a --format '"+dockerPsFormat+"'")
-	out, err := run(ctx, cfg.SSH.Bin, args...)
-	if err != nil {
-		return nil, fmt.Errorf("ssh %s@%s: %w", cfg.SSH.User, cfg.Host, err)
-	}
-	return parseDockerPs(out, store.ServerAutomation, "-"+cfg.ContainerInfix, d.cfg.Services), nil
+	return append(args, cfg.SSH.User+"@"+cfg.Host, remoteCmd), nil
 }
 
 // run executes a command with discoverTimeout and folds stderr into the error.
 func run(ctx context.Context, bin string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, discoverTimeout)
+	return runT(ctx, discoverTimeout, bin, args...)
+}
+
+func runT(ctx context.Context, timeout time.Duration, bin string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var stdout, stderr bytes.Buffer
 	cmd := exec.CommandContext(ctx, bin, args...)

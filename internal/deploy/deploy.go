@@ -48,6 +48,7 @@ var (
 	ErrBadRef      = errors.New("branch/tag is required")
 	ErrNotBooked   = errors.New("you must hold an active booking for this slot to deploy")
 	ErrBookedOther = errors.New("slot is currently booked by another user")
+	ErrEnvStopped  = errors.New("this env is stopped; ask an admin to start it first (only WBO can be deployed while it is stopped)")
 )
 
 // Start validates the request, acquires the slot lock, triggers Jenkins, and
@@ -78,6 +79,16 @@ func (s *Service) Start(ctx context.Context, req Request) (*store.Deployment, er
 		return nil, err
 	}
 	automation := server == store.ServerAutomation
+	// Jenkins does `docker restart <container>`, which would start a stopped
+	// watersheep/fisherman without its dependencies. WBO is static (nginx),
+	// so it can always be deployed.
+	if req.Service != "wbo" {
+		if env, err := s.st.GetEnvironment(req.Slot); err != nil {
+			return nil, err
+		} else if env != nil && env.DesiredState == store.DesiredStopped {
+			return nil, ErrEnvStopped
+		}
+	}
 	job := svc.Job
 	if automation {
 		job += "-automation"

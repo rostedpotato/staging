@@ -40,6 +40,9 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("apply schema: %w", err)
 	}
 	st := &Store{db: db}
+	if err := st.ensureColumn("environments", "desired_state", "TEXT NOT NULL DEFAULT 'running'"); err != nil {
+		return nil, fmt.Errorf("add environments.desired_state: %w", err)
+	}
 	if err := st.fixLegacyUTCBookings(); err != nil {
 		return nil, fmt.Errorf("fix legacy UTC bookings: %w", err)
 	}
@@ -62,6 +65,38 @@ func (s *Store) fixLegacyUTCBookings() error {
 		    end_time   = strftime('%Y-%m-%dT%H:%M:%SZ', end_time, '-7 hours')
 		WHERE substr(start_time, 12, 8) = '00:00:00'
 		  AND substr(end_time, 12, 8) = '23:59:59'`)
+	return err
+}
+
+// ensureColumn adds a column to a table created by an older schema. CREATE
+// TABLE IF NOT EXISTS never alters an existing table, so databases made before
+// a column was introduced need this one-time ALTER. table/column/def are
+// compile-time constants from Open, never user input.
+func (s *Store) ensureColumn(table, column, def string) error {
+	rows, err := s.db.Query(`SELECT name FROM pragma_table_info('` + table + `')`)
+	if err != nil {
+		return err
+	}
+	has := false
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			rows.Close()
+			return err
+		}
+		if name == column {
+			has = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	rows.Close() // single connection: must be released before the ALTER
+	if has {
+		return nil
+	}
+	_, err = s.db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + def)
 	return err
 }
 
