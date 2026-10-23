@@ -42,6 +42,7 @@ internal/
     audit.go                   audit_logs, search
   auth/                        login, RBAC, middleware
     auth.go                    Authenticator, LoadUser/RequireUser/RequireAdmin, session cookie
+    apikey.go                  RequireAPIKey (Bearer), APIKeyLookup/ConfigKeys, WriteAPIError
     handlers.go                POST /auth/login, GET/POST /reset-password, /logout
     render.go                  render halaman login/reset-password
   discovery/                   scan read-only ke host staging
@@ -57,6 +58,10 @@ internal/
     bookings.go                handler booking
     deploy_handlers.go         handler deploy + SSE log stream
     admin_handlers.go          handler admin (users/slots)
+    api_v1.go                  REST API /api/v1 (JSON, API key): tabel apiEndpoints(), DTO, handler
+    apidocs.go                 /api/docs + /api/openapi.yaml (go:embed)
+    apidocs/openapi.yaml       kontrak API (sumber kebenaran dokumentasi)
+    apidocs/swagger-ui/        Swagger UI 5.34.0 hasil vendor (Apache-2.0), tanpa CDN
     templates/*.html           html/template, di-embed via go:embed
     static/style.css           satu file CSS, di-embed
 ```
@@ -256,6 +261,7 @@ terlewat:
 | `deploy.requireBooking` | kalau `true`, user non-admin wajib punya booking aktif di slot yang sama untuk bisa deploy |
 | `deploy.jenkinsToken` | SECRET, shared untuk semua job Jenkins (bukan per-service) |
 | `auth.secure` | wajib `true` kalau sudah di belakang HTTPS (cookie `Secure` flag) |
+| `api.keys` | API key statis untuk `/api/v1`. Yang disimpan hanya hash `sha256:<hex>` (bukan key asli), plus `name` unik dan `scopes` (wajib minimal satu). Divalidasi saat startup (`Config.validateAPI`): entri salah = server menolak start |
 | `hiddenSlots` | daftar slot yang disembunyikan lewat config (terpisah dari `slot_settings` di DB yang diatur admin via UI `/admin/slots`) — keduanya di-OR-kan (`Config.Hidden()` + `store.HiddenSlots()`) |
 
 ## 7. Docker & mounts (`docker-compose.yml`)
@@ -272,8 +278,10 @@ terlewat:
 
 ## 8. Testing
 
-- `internal/store`, `internal/deploy`, `internal/web` punya test suite
-  (`go test ./...`). `internal/discovery` **belum** punya test otomatis
+- `internal/auth`, `internal/config`, `internal/store`, `internal/deploy`,
+  `internal/web` punya test suite (`go test ./...`). Tes `internal/web`
+  sebaiknya dijalankan dengan `TZ=Asia/Jakarta` (sama dengan produksi) dan
+  sesekali `TZ=UTC`. `internal/discovery` **belum** punya test otomatis
   (semua perbaikannya sejauh ini diverifikasi manual di server staging
   sungguhan karena tergantung `docker`/`git` binary + filesystem host asli).
 - Test helper `internal/web/admin_users_test.go:newTestServer` membuat
@@ -285,6 +293,56 @@ terlewat:
   manager OS) — lihat `README.md` bagian "Build/test commands" untuk versi
   persis & alasan pin versi (`modernc.org/sqlite`, `x/crypto` pinned supaya
   cocok dengan Go 1.21).
+
+## 8a. REST API `/api/v1` (API key + docs)
+
+Sengaja terpisah dari UI HTML: UI memakai cookie sesi dan form (respons
+redirect 303), sedangkan `/api/v1` hanya menerima `Authorization: Bearer <key>`,
+selalu menjawab JSON, dan **menolak cookie** (tidak ada risiko CSRF dari
+browser).
+
+- **Auth**: `auth.RequireAPIKey(lookup, scope, next)`. Key dicocokkan lewat hash
+  SHA-256 dengan `subtle.ConstantTimeCompare` terhadap semua key (tanpa early
+  exit). 401 = key tidak ada/salah, 403 = key sah tapi tanpa scope. Middleware
+  hanya bergantung pada interface `auth.APIKeyLookup`; sumber key saat ini
+  `ConfigKeys` (dari `config.json`). Kalau nanti butuh key di database/UI, cukup
+  tulis implementasi `APIKeyLookup` baru dan ganti di `web.NewServer` — handler
+  dan docs tidak berubah.
+- **Error seragam**: `auth.WriteAPIError` -> `{"error":{"code","message"}}`. Path
+  `/api/v1/*` yang tidak dikenal juga JSON 404 (bukan redirect `/login` milik `/`).
+- **DTO terpisah** (`apiBooking`) dari `store.Reservation`, agar field internal
+  (mis. `UserID`) tidak bocor dan kontrak tidak ikut berubah saat struct
+  penyimpanan berubah.
+- **Waktu**: input `YYYY-MM-DD` ditafsirkan di `bookingLoc` (WIB); `to` berupa
+  tanggal berarti sampai akhir hari itu. Rentang memakai logika overlap
+  `start < to AND end > from` (sama dengan dashboard, via `store.ListHistory`).
+  Output selalu RFC3339 dengan offset. Ingat sejarah bug UTC vs WIB di
+  `store.fixLegacyUTCBookings` — jangan format waktu API tanpa `.In(bookingLoc)`.
+- **Paginasi** offset dengan urutan stabil (`start`, lalu `id`).
+- **Versi**: menambah field/endpoint tetap di `/api/v1` (klien wajib mengabaikan
+  field tak dikenal); perubahan yang merusak kompatibilitas = `/api/v2`.
+
+### Menambah endpoint API baru
+
+1. Tulis handler `handleAPIXxx` di `api_v1.go` (DTO + validasi; error lewat
+   `auth.WriteAPIError`).
+2. Tambahkan konstanta scope baru dan satu baris di `apiEndpoints()`.
+3. Tambahkan operasi yang sama di `apidocs/openapi.yaml`, termasuk
+   `x-required-scope: <scope>`.
+4. `go test ./internal/web/` — `TestOpenAPISpecMatchesRoutes` gagal kalau kode
+   dan spec tidak sama (rute, method, scope), dan
+   `TestAPIBookingsResponseMatchesSchema` memvalidasi respons nyata terhadap
+   skema. Lengkapi dengan tes seperti `api_v1_test.go`.
+5. Beri scope itu ke key yang berhak di `config.json`.
+
+### Docs
+
+`/api/docs` dan `/api/openapi.yaml` publik (tanpa data/secret). Swagger UI
+(`swagger-ui-dist` 5.34.0) di-vendor ke `apidocs/swagger-ui/` dan di-embed, jadi
+tidak perlu internet; halaman memakai CSP `script-src 'self'`. Untuk upgrade:
+unduh tarball npm versi baru, cocokkan shasum, ganti 3 file
+(`swagger-ui-bundle.js`, `swagger-ui.css`, `favicon-32x32.png`) + `LICENSE`.
+Tes `TestAPIDocsServed` memastikan halaman tidak memanggil URL eksternal.
 
 ## 9. Kalau mau menambah fitur discovery baru
 
