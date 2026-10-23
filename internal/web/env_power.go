@@ -30,6 +30,9 @@ type powerState struct {
 // errPowerBusy means a stop/start of that env is already running.
 var errPowerBusy = errors.New("already being stopped or started")
 
+// errEnvBooked means a stop was refused because somebody holds the env now.
+var errEnvBooked = errors.New("the env is booked right now")
+
 // envRow is one line of /admin/envs.
 type envRow struct {
 	Name       string
@@ -172,6 +175,16 @@ func (s *Server) handleEnvPower(w http.ResponseWriter, r *http.Request, verb str
 func (s *Server) startPower(u *store.User, env *store.Environment, verb, reason string) error {
 	if !s.beginPower(env.Name, verb) {
 		return errPowerBusy
+	}
+	// Last look at the bookings, as late as possible: a plan made a moment ago
+	// (or a button page opened a while ago) may be out of date. If a booking
+	// slips in after this check, auto power starts the env again on its next
+	// tick (a stopped env with a running booking is started at once).
+	if verb == "stop" {
+		if res, _ := s.st.ActiveForSlot(env.Name); res != nil {
+			s.abortPower(env.Name)
+			return errEnvBooked
+		}
 	}
 	// Mark the intent before touching containers, then look for a running
 	// deployment. deploy.Start does the opposite (takes the slot lock, then

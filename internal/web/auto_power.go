@@ -183,7 +183,7 @@ func (s *Server) runAutoPower(now time.Time) {
 		if err != nil || env == nil {
 			continue
 		}
-		if err := s.startPower(autoActor, env, p.Action, p.Reason); err != nil && err != errPowerBusy {
+		if err := s.startPower(autoActor, env, p.Action, p.Reason); err != nil && err != errPowerBusy && err != errEnvBooked {
 			log.Printf("auto power %s %s: %v", p.Action, name, err)
 		}
 	}

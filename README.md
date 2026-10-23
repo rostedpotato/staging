@@ -139,6 +139,7 @@ go run . -config config.json
 | `discovery.nginxSitesDir` | nginx sites-enabled dir for domains |
 | `discovery.services` | deployable service names per slot |
 | `discovery.refreshSeconds` | dashboard auto-refresh interval |
+| `api.keys` | static API keys for the read-only `/api/v1` (see [REST API](#rest-api-apiv1)) |
 | `hiddenSlots` | slot names to hide (legacy/dead) |
 
 ## Env discovery and status checks
@@ -189,8 +190,78 @@ Two separate jobs:
 ## Endpoints
 
 - `GET /` — HTML dashboard
-- `GET /api/slots` — JSON of the same data
+- `GET /api/slots` — JSON of the same data (login session)
 - `GET /healthz` — liveness
+- `GET /api/v1/...` — machine-facing JSON API (API key), see below
+- `GET /api/docs` — interactive API docs; `GET /api/openapi.yaml` — the spec
+
+## REST API (`/api/v1`)
+
+A read-only JSON API for other systems (reports, BI, scripts). It is
+separate from the browser UI: it accepts **only** an API key, never the login
+cookie, and always answers JSON (no redirects).
+
+| Endpoint | Scope | What |
+|---|---|---|
+| `GET /api/v1/bookings?from=&to=` | `bookings:read` | bookings overlapping a time range |
+
+Query parameters of `/api/v1/bookings`:
+
+| param | notes |
+|---|---|
+| `from`, `to` | **required**. `YYYY-MM-DD` (whole day, WIB) or RFC3339. A date `to` includes that whole day. `to` must be after `from`, at most 366 days apart |
+| `slot` | optional, one env, e.g. `development-04` |
+| `status` | optional: `active`, `expired`, `released`, `overridden` |
+| `limit`, `offset` | paging; default 100, max 500 |
+
+A booking is returned when its window **overlaps** the range, so one that
+started before `from` and is still running is included. Results are ordered by
+start time. Times are RFC3339 in WIB (`+07:00`); `effectiveEnd` is the release
+time when a booking was released early.
+
+```sh
+curl -H "Authorization: Bearer $API_KEY" \
+  "http://HOST:8088/api/v1/bookings?from=2026-10-01&to=2026-10-31&limit=50"
+```
+
+In a timestamp, encode `+` as `%2B`
+(`from=2026-10-01T08:00:00%2B07:00`). Errors look like
+`{"error":{"code":"unauthorized","message":"..."}}` with status 400 / 401 /
+403 / 404 / 405 / 500.
+
+### Docs
+
+`/api/docs` (Swagger UI, with an **Authorize** button for the key) and
+`/api/openapi.yaml` are public and need no key; they contain no data. The
+assets are embedded in the binary, so they work without internet access.
+
+### Issuing an API key
+
+Keys live in `config.json` as **SHA-256 hashes** — the raw key is never stored,
+so a leaked config does not reveal it. Create one key per consumer:
+
+```sh
+KEY=$(openssl rand -hex 32)
+echo "give to the consumer: $KEY"
+echo "hash for config.json:  sha256:$(printf %s "$KEY" | sha256sum | cut -d' ' -f1)"
+```
+
+```json
+"api": {
+  "keys": [
+    { "name": "reporting-bi", "hash": "sha256:<64 hex chars>", "scopes": ["bookings:read"] }
+  ]
+}
+```
+
+- `name` is for logs only (each request logs `api: key="<name>" ...`); it must
+  be unique. `scopes` limits what the key may call and must not be empty.
+- A malformed entry (bad hash, duplicate name/hash, no scopes) stops the
+  server at startup with a clear message instead of failing silently.
+- Restart the platform after editing `config.json`.
+- **Rotate** without downtime: add the new key, move the consumer over, then
+  delete the old entry. **Revoke**: delete the entry and restart.
+- Send the key only over HTTPS (or a trusted network); it is a bearer secret.
 
 ## Phase 3 — booking per slot
 

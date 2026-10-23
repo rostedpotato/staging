@@ -34,6 +34,9 @@ type Server struct {
 	deploy *deploy.Service
 	tmpl   *template.Template
 
+	// apiKeys authenticates /api/v1 (see api_v1.go).
+	apiKeys auth.APIKeyLookup
+
 	// statusMu guards the cached status of every known env (staging and
 	// automation). It's refreshed by a background loop (StartStatusLoop) that
 	// only curls /actuator/info, so page loads never wait on it.
@@ -70,7 +73,8 @@ func NewServer(cfg *config.Config, disc *discovery.Discoverer, a *auth.Authentic
 		return nil, err
 	}
 	return &Server{cfg: cfg, disc: disc, auth: a, st: st, deploy: dep, tmpl: tmpl,
-		power: map[string]*powerState{}}, nil
+		apiKeys: auth.NewConfigKeys(cfg.API.Keys),
+		power:   map[string]*powerState{}}, nil
 }
 
 func (s *Server) renderBookings(w http.ResponseWriter, data bookingsPage) {
@@ -91,6 +95,10 @@ func (s *Server) Handler() http.Handler {
 		w.Write([]byte("ok"))
 	})
 	s.auth.Routes(mux)
+
+	// Machine-facing JSON API (API key, no cookies) and its public docs.
+	s.apiRoutes(mux)
+	s.docsRoutes(mux)
 
 	// Protected endpoints (login required).
 	mux.Handle("/api/slots", s.auth.RequireUser(http.HandlerFunc(s.handleAPISlots)))

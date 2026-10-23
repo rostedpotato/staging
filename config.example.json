@@ -47,6 +47,9 @@
       }
     ]
   },
+  "api": {
+    "keys": []
+  },
   "hiddenSlots": [],
   "automation": {
     "host": "10.20.3.142",

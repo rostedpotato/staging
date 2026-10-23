@@ -23,6 +23,7 @@ import (
 type testConfig struct {
 	dockerBin string
 	sshBin    string
+	apiKeys   []config.APIKey
 }
 
 // newTestServer builds the full HTTP stack with a temp DB. Optional slot
@@ -62,6 +63,7 @@ func newTestServerFull(t *testing.T, opt func(*testConfig), slots ...string) (*S
 	}
 	cfg := &config.Config{}
 	cfg.Auth.SessionTTLHours = 1
+	cfg.API.Keys = tc.apiKeys
 	cfg.Discovery.AppRoot = appRoot
 	cfg.Discovery.SlotDirPrefix = "agent-"
 	cfg.Discovery.RepoSubdir = "parkee-agent-backoffice"
