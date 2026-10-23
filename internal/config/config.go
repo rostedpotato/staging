@@ -2,10 +2,12 @@
 package config
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 type Discovery struct {
@@ -101,6 +103,21 @@ type Automation struct {
 	Slots []AutomationSlot `json:"slots"`
 }
 
+// APIKey is a static key for the machine-facing /api/v1 endpoints. Only the
+// SHA-256 of the key is stored, so a leaked config.json does not reveal it.
+type APIKey struct {
+	// Name identifies the key holder in logs (not secret).
+	Name string `json:"name"`
+	// Hash is "sha256:<64 hex chars>" of the raw key.
+	Hash string `json:"hash"`
+	// Scopes limits what the key may call, e.g. ["bookings:read"].
+	Scopes []string `json:"scopes"`
+}
+
+type API struct {
+	Keys []APIKey `json:"keys"`
+}
+
 type Config struct {
 	Listen      string     `json:"listen"`
 	DBPath      string     `json:"dbPath"`
@@ -108,6 +125,7 @@ type Config struct {
 	Automation  Automation `json:"automation"`
 	Auth        Auth       `json:"auth"`
 	Deploy      Deploy     `json:"deploy"`
+	API         API        `json:"api"`
 	HiddenSlots []string   `json:"hiddenSlots"`
 }
 
@@ -200,7 +218,43 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("parse config %s: %w", path, err)
 	}
 	c.withDefaults()
+	if err := c.validateAPI(); err != nil {
+		return nil, fmt.Errorf("config %s: %w", path, err)
+	}
 	return &c, nil
+}
+
+// validateAPI rejects malformed API key entries at startup rather than
+// silently never matching (or worse, matching an empty hash).
+func (c *Config) validateAPI() error {
+	seenName := map[string]bool{}
+	seenHash := map[string]bool{}
+	for i := range c.API.Keys {
+		k := &c.API.Keys[i]
+		if k.Name == "" {
+			return fmt.Errorf("api.keys[%d]: name is required", i)
+		}
+		if seenName[k.Name] {
+			return fmt.Errorf("api.keys[%d]: duplicate name %q", i, k.Name)
+		}
+		seenName[k.Name] = true
+		h := strings.ToLower(strings.TrimPrefix(k.Hash, "sha256:"))
+		if len(h) != 64 {
+			return fmt.Errorf("api.keys[%d] (%s): hash must be \"sha256:\" + 64 hex chars", i, k.Name)
+		}
+		if _, err := hex.DecodeString(h); err != nil {
+			return fmt.Errorf("api.keys[%d] (%s): hash is not valid hex", i, k.Name)
+		}
+		if seenHash[h] {
+			return fmt.Errorf("api.keys[%d] (%s): duplicate hash", i, k.Name)
+		}
+		seenHash[h] = true
+		k.Hash = "sha256:" + h
+		if len(k.Scopes) == 0 {
+			return fmt.Errorf("api.keys[%d] (%s): at least one scope is required", i, k.Name)
+		}
+	}
+	return nil
 }
 
 // Hidden reports whether a slot name is configured to be hidden.
