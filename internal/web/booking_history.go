@@ -85,23 +85,25 @@ func mergeable(r store.Reservation) bool {
 	return r.Status == store.ResActive || r.Status == store.ResExpired
 }
 
-// groupHistory merges back-to-back bookings of the same person, env and
-// purpose into one row each, then sorts the rows by sortKey.
+// groupHistory merges back-to-back bookings of the same account, display name,
+// team, env and purpose into one row each, then sorts the rows by sortKey.
 func groupHistory(rs []store.Reservation, now time.Time, sortKey string) []historyRow {
 	items := append([]store.Reservation(nil), rs...)
 	sort.SliceStable(items, func(i, j int) bool {
 		a, b := items[i], items[j]
+		// Keep the old ordering keys first so adding name/team snapshots does
+		// not reorder legacy rows, whose names are backfilled from username.
 		switch {
 		case a.Slot != b.Slot:
 			return a.Slot < b.Slot
 		case a.Username != b.Username:
 			return a.Username < b.Username
+		case a.Purpose != b.Purpose:
+			return a.Purpose < b.Purpose
 		case a.Name != b.Name:
 			return a.Name < b.Name
 		case a.Team != b.Team:
 			return a.Team < b.Team
-		case a.Purpose != b.Purpose:
-			return a.Purpose < b.Purpose
 		}
 		return a.Start.Before(b.Start)
 	})

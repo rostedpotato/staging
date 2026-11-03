@@ -124,6 +124,9 @@ func (s *Server) handleBookingCreate(w http.ResponseWriter, r *http.Request) {
 		var conflict *store.ConflictError
 		if errors.As(err, &conflict) {
 			by := conflict.Name
+			if by == "" {
+				by = conflict.Username
+			}
 			if conflict.Team != "" {
 				by += " (" + conflict.Team + ")"
 			}

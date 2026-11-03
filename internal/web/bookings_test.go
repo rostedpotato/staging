@@ -129,6 +129,32 @@ func TestBookingCreate_DateRange(t *testing.T) {
 	}
 }
 
+func TestBookingCreate_ConflictFallsBackToUsernameWhenNameIsEmpty(t *testing.T) {
+	ts, st := newTestServer(t, "ho")
+	provisionAndLogin(t, ts, st, "legacy-owner", store.RoleEngineering)
+	requester := provisionAndLogin(t, ts, st, "qa", store.RoleEngineering)
+	owner, err := st.UserByUsername("legacy-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start, end, err := parseBookingRange(day(1), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateReservationWithDetails("ho", owner.ID, owner.Username, "", "", "legacy", start, end); err != nil {
+		t.Fatal(err)
+	}
+
+	r := post(t, requester, ts.URL+"/bookings/create", url.Values{
+		"slot": {"ho"}, "name": {"QA User"}, "team": {"QA"}, "startDate": {day(1)}, "purpose": {"smoke"},
+	})
+	r.Body.Close()
+	if loc := r.Header.Get("Location"); !strings.Contains(loc, "already+booked+by+legacy-owner") {
+		t.Fatalf("empty booking name should fall back to username, redirect=%q", loc)
+	}
+}
+
 func TestBookingPage_SendsBookedDaysPerSlot(t *testing.T) {
 	ts, st := newTestServer(t, "ho", "dev-09")
 	owner := provisionAndLogin(t, ts, st, "budi", store.RoleEngineering)

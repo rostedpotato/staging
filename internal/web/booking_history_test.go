@@ -40,7 +40,7 @@ func TestEffectiveEnd(t *testing.T) {
 
 func TestGroupHistory_MergesConsecutiveDays(t *testing.T) {
 	var rs []store.Reservation
-	for i := 0; i <= 7; i++ { // brian, dev-04, today .. +7, one booking per day
+	for i := 0; i <= 7; i++ { // legacy-style rows: name=username, team empty
 		rs = append(rs, dayRes(int64(i+1), "development-04", "brian", "dev multiple zone gp", store.ResActive, i, i))
 	}
 	rs = append(rs, dayRes(20, "development-10", "samsul", "hotfix", store.ResActive, 0, 1))
@@ -66,6 +66,18 @@ func TestGroupHistory_MergesConsecutiveDays(t *testing.T) {
 	}
 	if !strings.HasPrefix(brian.CreatedNote, "8 bookings") {
 		t.Fatalf("created note: %q", brian.CreatedNote)
+	}
+}
+
+func TestGroupHistory_DoesNotMergeDifferentDisplayDetails(t *testing.T) {
+	first := dayRes(1, "a", "brian", "p", store.ResActive, 0, 0)
+	first.Name, first.Team = "Brian", "Platform"
+	second := dayRes(2, "a", "brian", "p", store.ResActive, 1, 1)
+	second.Name, second.Team = "Brian", "QA"
+
+	rows := groupHistory([]store.Reservation{first, second}, hNow, "date_desc")
+	if len(rows) != 2 {
+		t.Fatalf("consecutive bookings with different team snapshots should remain separate, got %d rows: %+v", len(rows), rows)
 	}
 }
 

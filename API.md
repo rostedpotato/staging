@@ -184,8 +184,11 @@ Kebutuhan: tim ingin tahu siapa memakai env apa selama Oktober 2026.
 
 ```sh
 curl -s -H "$H" "$BASE/api/v1/bookings?from=2026-10-01&to=2026-10-31&limit=500" \
- | jq -r '.data[] | [.slot, .username, .start[:10], .effectiveEnd[:10], .status, .purpose] | @tsv'
+ | jq -r '.data[] | [.slot, .name, .team, .start[:10], .effectiveEnd[:10], .status, .purpose] | @tsv'
 ```
+
+Laporan ini memakai nama dan tim agar hasilnya mudah dibaca. Field `username`
+tetap tersedia jika laporan juga perlu mencantumkan identitas akun.
 
 Jumlah booking per env:
 
@@ -209,7 +212,7 @@ curl -s -G -H "$H" "$BASE/api/v1/bookings" \
   --data-urlencode "slot=$SLOT" \
   --data-urlencode "status=active" \
  | jq -r 'if .meta.total == 0 then "'"$SLOT"' sedang kosong"
-          else .data[] | "\(.slot) dipakai \(.username) sampai \(.end[:16]) (\(.purpose))" end'
+          else .data[] | "\(.slot) dipakai \(.name)\(if .team == "" then "" else " (\(.team))" end) sampai \(.end[:16]) (\(.purpose))" end'
 ```
 
 Rentang satu menit di sekitar "sekarang" membuat hanya booking yang sedang
@@ -224,13 +227,13 @@ terpenuhi.
 
 ```sh
 FROM=2026-10-01; TO=2026-12-31; LIMIT=500; OFFSET=0
-echo "id,slot,username,start,effective_end,status,purpose" > bookings.csv
+echo "id,slot,username,name,team,start,effective_end,status,purpose" > bookings.csv
 
 while :; do
   RESP=$(curl -sf -H "$H" \
     "$BASE/api/v1/bookings?from=$FROM&to=$TO&limit=$LIMIT&offset=$OFFSET") || { echo "request gagal" >&2; exit 1; }
 
-  echo "$RESP" | jq -r '.data[] | [.id,.slot,.username,.start,.effectiveEnd,.status,.purpose] | @csv' >> bookings.csv
+  echo "$RESP" | jq -r '.data[] | [.id,.slot,.username,.name,.team,.start,.effectiveEnd,.status,.purpose] | @csv' >> bookings.csv
 
   TOTAL=$(echo "$RESP" | jq '.meta.total')
   OFFSET=$((OFFSET + LIMIT))
@@ -252,7 +255,7 @@ beserta berapa hari lebih cepat.
 for S in released overridden; do
   echo "== $S"
   curl -s -H "$H" "$BASE/api/v1/bookings?from=2026-10-01&to=2026-10-31&status=$S&limit=500" \
-   | jq -r '.data[] | "\(.slot)\t\(.username)\tjadwal \(.end[:10])\tselesai \(.effectiveEnd[:10])"'
+   | jq -r '.data[] | "\(.slot)\t\(.name)\(if .team == "" then "" else " (\(.team))" end)\tjadwal \(.end[:10])\tselesai \(.effectiveEnd[:10])"'
 done
 ```
 
@@ -282,15 +285,16 @@ print(f"{today}: {body['meta']['total']} booking aktif")
 for b in sorted(body["data"], key=lambda b: b["slot"]):
     ends = b["end"][:10]
     note = "  <-- berakhir hari ini" if ends == today else ""
-    print(f"  {b['slot']}: {b['username']} sampai {ends} ({b['purpose']}){note}")
+    team = f" ({b['team']})" if b.get("team") else ""
+    print(f"  {b['slot']}: {b['name']}{team} sampai {ends} ({b['purpose']}){note}")
 ```
 
 Keluaran contoh:
 
 ```
 2026-10-23: 2 booking aktif
-  0pv: dewi sampai 2026-10-23 (sedang jalan juga)  <-- berakhir hari ini
-  development-04: citra sampai 2026-10-25 (sedang jalan)
+  0pv: Dewi (QA) sampai 2026-10-23 (sedang jalan juga)  <-- berakhir hari ini
+  development-04: Citra (Platform) sampai 2026-10-25 (sedang jalan)
 ```
 
 Menjalankannya:
