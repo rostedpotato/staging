@@ -99,19 +99,20 @@
       <noscript><button type="submit" class="btn small">Apply</button></noscript>
     </form>
     <table class="audit">
-      <thead><tr><th>Env</th><th>User</th><th>Booked days</th><th>Released</th><th>Status</th><th>Purpose</th></tr></thead>
+      <thead><tr><th>Env</th><th>Name</th><th>Team</th><th>Booked days</th><th>Released</th><th>Status</th><th>Purpose</th></tr></thead>
       <tbody>
         {{range .BookingHistory}}
           <tr>
             <td><b>{{.Slot}}</b></td>
-            <td>{{.Username}}<div class="hint">{{.CreatedNote}}</div></td>
+            <td>{{.Name}}<div class="hint">{{.CreatedNote}}</div></td>
+            <td>{{.Team}}</td>
             <td>{{.Dates}}</td>
             <td>{{if .ReleasedText}}{{.ReleasedText}}{{else}}<span class="hint">—</span>{{end}}</td>
             <td><span class="tag hist-{{.Status}}">{{.Status}}</span></td>
             <td>{{.Purpose}}</td>
           </tr>
         {{else}}
-          <tr><td colspan="6" class="empty">No bookings here. Change &ldquo;Show&rdquo; to see finished or released ones.</td></tr>
+          <tr><td colspan="7" class="empty">No bookings here. Change &ldquo;Show&rdquo; to see finished or released ones.</td></tr>
         {{end}}
       </tbody>
     </table>
@@ -153,7 +154,7 @@
   <div class="booking">
     {{if .Booking}}
       <span class="lock">🔒 booked</span>
-      <span class="by">{{.Booking.Username}} until {{fmtTime .Booking.End}}</span>
+      <span class="by">{{.Booking.Name}}{{if .Booking.Team}} · {{.Booking.Team}}{{end}} until {{fmtTime .Booking.End}}</span>
     {{else}}
       <span class="free">available</span>
     {{end}}

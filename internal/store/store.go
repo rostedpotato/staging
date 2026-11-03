@@ -46,6 +46,17 @@ func Open(path string) (*Store, error) {
 	if err := st.ensureColumn("environments", "desired_changed_at", "TEXT NOT NULL DEFAULT ''"); err != nil {
 		return nil, fmt.Errorf("add environments.desired_changed_at: %w", err)
 	}
+	if err := st.ensureColumn("reservations", "name", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return nil, fmt.Errorf("add reservations.name: %w", err)
+	}
+	if err := st.ensureColumn("reservations", "team", "TEXT NOT NULL DEFAULT ''"); err != nil {
+		return nil, fmt.Errorf("add reservations.team: %w", err)
+	}
+	// Existing bookings have no separately captured display name. Keep their
+	// historical identity recognizable by showing the stored login username.
+	if _, err := db.Exec(`UPDATE reservations SET name = username WHERE name = ''`); err != nil {
+		return nil, fmt.Errorf("backfill reservations.name: %w", err)
+	}
 	if err := st.fixLegacyUTCBookings(); err != nil {
 		return nil, fmt.Errorf("fix legacy UTC bookings: %w", err)
 	}

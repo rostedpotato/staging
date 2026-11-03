@@ -85,6 +85,10 @@ internal/
 - `store.CreateReservation` (`reservations.go`) melakukan cek overlap +
   insert dalam **satu transaksi SQL** — mencegah race condition dua booking
   bentrok di slot+tanggal yang sama.
+- Booking menyimpan username akun untuk otorisasi dan snapshot nama, tim,
+  serta purpose untuk tampilan/riwayat. Nama, tim, dan purpose wajib diisi
+  pada form; booking lama di-backfill dengan username sebagai nama dan tim
+  kosong.
 - Booking selalu whole-day (00:00:00–23:59:59 lokal), lihat
   `bookings.go:parseBookingDate`.
 - `ExpireDue()` dipanggil lazy di awal `ListActive()`/`ActiveForSlot()` untuk

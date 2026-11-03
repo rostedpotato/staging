@@ -18,7 +18,7 @@ func dayRes(id int64, slot, user, purpose, status string, d1, d2 int) store.Rese
 	start := midnight(hNow).AddDate(0, 0, d1)
 	end := midnight(hNow).AddDate(0, 0, d2+1).Add(-time.Second)
 	return store.Reservation{
-		ID: id, UserID: 1, Slot: slot, Username: user, Purpose: purpose, Status: status,
+		ID: id, UserID: 1, Slot: slot, Username: user, Name: user, Purpose: purpose, Status: status,
 		Start: start, End: end, CreatedAt: start.AddDate(0, 0, -3).UTC().Format(time.RFC3339),
 	}
 }

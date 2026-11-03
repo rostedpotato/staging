@@ -93,10 +93,10 @@ func (s *Server) handleAdminEnvs(w http.ResponseWriter, r *http.Request) {
 			row.Overall = "unknown" // not checked yet
 		}
 		if res, ok := current[e.Name]; ok {
-			row.BookedBy, row.BookedTill = res.Username, res.End
+			row.BookedBy, row.BookedTill = bookingDisplayName(res), res.End
 		}
 		if res, ok := upcoming[e.Name]; ok {
-			row.NextBook = fmt.Sprintf("%s from %s", res.Username, res.Start.Local().Format("2006-01-02"))
+			row.NextBook = fmt.Sprintf("%s from %s", bookingDisplayName(res), res.Start.Local().Format("2006-01-02"))
 		}
 		s.powerMu.Lock()
 		if p := s.power[e.Name]; p != nil {
@@ -143,7 +143,7 @@ func (s *Server) handleEnvPower(w http.ResponseWriter, r *http.Request, verb str
 		// Never switch off an env somebody is using.
 		if res, _ := s.st.ActiveForSlot(name); res != nil {
 			redirectTo(w, r, "/admin/envs", "",
-				fmt.Sprintf("%s is booked by %s until %s; it is not stopped.", name, res.Username, res.End.Local().Format("2006-01-02 15:04")))
+				fmt.Sprintf("%s is booked by %s until %s; it is not stopped.", name, bookingDisplayName(*res), res.End.Local().Format("2006-01-02 15:04")))
 			return
 		}
 		notice = fmt.Sprintf("Stopping %s in the background.", name)
@@ -239,7 +239,14 @@ func (s *Server) nextBooking(env string) string {
 	if best == nil {
 		return ""
 	}
-	return fmt.Sprintf("%s has a booking by %s from %s.", env, best.Username, best.Start.Local().Format("2006-01-02"))
+	return fmt.Sprintf("%s has a booking by %s from %s.", env, bookingDisplayName(*best), best.Start.Local().Format("2006-01-02"))
+}
+
+func bookingDisplayName(r store.Reservation) string {
+	if r.Team != "" {
+		return r.Name + " (" + r.Team + ")"
+	}
+	return r.Name
 }
 
 // runPower does the actual compose stop/start. It runs in the background:

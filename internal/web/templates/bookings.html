@@ -32,7 +32,9 @@
           </optgroup>{{end}}
         </select>
       </label>
-      <label class="wide"><span>Purpose</span> <input type="text" name="purpose" placeholder="e.g. Payment QA" maxlength="200"></label>
+      <label><span>Name <span class="required-mark">*</span></span> <input type="text" name="name" maxlength="120" required></label>
+      <label><span>Team <span class="required-mark">*</span></span> <input type="text" name="team" maxlength="120" required></label>
+      <label class="wide"><span>Purpose <span class="required-mark">*</span></span> <input type="text" name="purpose" placeholder="e.g. Payment QA" maxlength="200" required></label>
       <div class="calwrap">
         <div class="cal-label">Dates <span class="required-mark">*</span></div>
         <div class="cal" id="bookCal"></div>
@@ -126,7 +128,7 @@
           var when = document.createElement('b');
           when.textContent = rangeText(b);
           row.appendChild(when);
-          row.appendChild(document.createTextNode(' \u2014 ' + b.user + (b.mine ? ' (you)' : '') + (b.purpose ? ' \u00b7 ' + b.purpose : '')));
+          row.appendChild(document.createTextNode(' \u2014 ' + b.name + (b.team ? ' \u00b7 ' + b.team : '') + (b.mine ? ' (you)' : '') + (b.purpose ? ' \u00b7 ' + b.purpose : '')));
           notes.appendChild(row);
         });
       }
@@ -192,7 +194,7 @@
           var bk = bookingOn(d);
           c.el.classList.toggle('is-booked', !!bk && !bk.mine);
           c.el.classList.toggle('is-mine', !!bk && bk.mine);
-          c.el.title = bk ? 'Booked by ' + bk.user + (bk.purpose ? ' \u2014 ' + bk.purpose : '') : '';
+          c.el.title = bk ? 'Booked by ' + bk.name + (bk.team ? ' \u00b7 ' + bk.team : '') + (bk.purpose ? ' \u2014 ' + bk.purpose : '') : '';
         });
       }
 
@@ -299,12 +301,13 @@
   <section class="panel">
     <h2>Current &amp; upcoming bookings</h2>
     <table class="audit">
-      <thead><tr><th>Slot</th><th>User</th><th>From</th><th>Until</th><th>Purpose</th><th></th></tr></thead>
+      <thead><tr><th>Slot</th><th>Name</th><th>Team</th><th>From</th><th>Until</th><th>Purpose</th><th></th></tr></thead>
       <tbody>
         {{range .Active}}
           <tr>
             <td><b>{{.Slot}}</b></td>
-            <td>{{.Username}}</td>
+            <td>{{.Name}}</td>
+            <td>{{.Team}}</td>
             <td>{{fmtDate .Start}}</td>
             <td>{{fmtDate .End}}</td>
             <td>{{.Purpose}}</td>
@@ -320,7 +323,7 @@
             </td>
           </tr>
         {{else}}
-          <tr><td colspan="6" class="empty">No active bookings.</td></tr>
+          <tr><td colspan="7" class="empty">No active bookings.</td></tr>
         {{end}}
       </tbody>
     </table>
@@ -329,18 +332,20 @@
   <section class="panel">
     <h2>My recent bookings</h2>
     <table class="audit">
-      <thead><tr><th>Slot</th><th>From</th><th>Until</th><th>Status</th><th>Purpose</th></tr></thead>
+      <thead><tr><th>Slot</th><th>Name</th><th>Team</th><th>From</th><th>Until</th><th>Status</th><th>Purpose</th></tr></thead>
       <tbody>
         {{range .Mine}}
           <tr>
             <td>{{.Slot}}</td>
+            <td>{{.Name}}</td>
+            <td>{{.Team}}</td>
             <td>{{fmtDate .Start}}</td>
             <td>{{if or (eq .Status "released") (eq .Status "overridden")}}{{fmtTime .EffectiveEnd}} <span class="hint">(released)</span>{{else}}{{fmtDate .End}}{{end}}</td>
             <td><span class="tag">{{.Status}}</span></td>
             <td>{{.Purpose}}</td>
           </tr>
         {{else}}
-          <tr><td colspan="5" class="empty">You have no bookings yet.</td></tr>
+          <tr><td colspan="7" class="empty">You have no bookings yet.</td></tr>
         {{end}}
       </tbody>
     </table>

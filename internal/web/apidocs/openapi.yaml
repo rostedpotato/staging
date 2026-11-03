@@ -122,6 +122,8 @@ paths:
                   - id: 42
                     slot: development-04
                     username: brian
+                    name: Brian
+                    team: QA
                     purpose: dev multiple zone gp
                     start: "2026-10-15T00:00:00+07:00"
                     end: "2026-10-22T23:59:59+07:00"
@@ -162,7 +164,7 @@ components:
       enum: [active, expired, released, overridden]
     Booking:
       type: object
-      required: [id, slot, username, purpose, start, end, effectiveEnd, status, createdAt, releasedAt]
+      required: [id, slot, username, name, team, purpose, start, end, effectiveEnd, status, createdAt, releasedAt]
       properties:
         id:
           type: integer
@@ -172,7 +174,13 @@ components:
           description: Environment name.
         username:
           type: string
-          description: Who booked it.
+          description: Login username of the account that created the booking.
+        name:
+          type: string
+          description: Display name supplied when the booking was created.
+        team:
+          type: string
+          description: Team supplied when the booking was created.
         purpose:
           type: string
         start:

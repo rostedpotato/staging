@@ -201,6 +201,8 @@ A read-only JSON API for other systems (reports, BI, scripts). It is
 separate from the browser UI: it accepts **only** an API key, never the login
 cookie, and always answers JSON (no redirects).
 
+> Full reference for API users, with usage scenarios: [`API.md`](API.md).
+
 | Endpoint | Scope | What |
 |---|---|---|
 | `GET /api/v1/bookings?from=&to=` | `bookings:read` | bookings overlapping a time range |
@@ -265,7 +267,7 @@ echo "hash for config.json:  sha256:$(printf %s "$KEY" | sha256sum | cut -d' ' -
 
 ## Phase 3 — booking per slot
 
-- `/bookings`: book a slot for a time window, see who holds each slot until when.
+- `/bookings`: book a slot for a time window; name, team, and purpose are required. Booking views show name and team, while the API also returns the account username.
 - Overlap is rejected transactionally; owner can release, admin can override.
 - Bookings auto-expire; the dashboard shows `booked`/`available` per slot.
 
