@@ -65,10 +65,10 @@ func planFor(in planInput, now time.Time) powerPlan {
 		switch {
 		case in.Current != nil:
 			return powerPlan{Action: "start", At: now,
-				Reason: fmt.Sprintf("booked by %s now", in.Current.Username)}
+				Reason: fmt.Sprintf("booked by %s now", bookingDisplayName(*in.Current))}
 		case in.Next != nil:
 			return powerPlan{Action: "start", At: in.Next.Start.Add(-autoStartLead),
-				Reason: fmt.Sprintf("booking by %s starts %s", in.Next.Username, in.Next.Start.Local().Format("2006-01-02 15:04"))}
+				Reason: fmt.Sprintf("booking by %s starts %s", bookingDisplayName(*in.Next), in.Next.Start.Local().Format("2006-01-02 15:04"))}
 		}
 		return powerPlan{}
 	}

@@ -81,7 +81,7 @@ func TestBookingPage_GroupsStagingAndAutomation(t *testing.T) {
 	if !strings.Contains(autoGroup, `value="0vt"`) || strings.Contains(autoGroup, `value="ho"`) {
 		t.Fatal("0vt must be only in the Staging Automation group")
 	}
-	for _, want := range []string{`id="bookCal"`, `type="hidden" name="startDate"`, `type="hidden" name="endDate"`} {
+	for _, want := range []string{`name="name" maxlength="120" required`, `name="team" maxlength="120" required`, `name="purpose" placeholder="e.g. Payment QA" maxlength="200" required`, `id="bookCal"`, `type="hidden" name="startDate"`, `type="hidden" name="endDate"`} {
 		if !strings.Contains(page, want) {
 			t.Fatalf("booking form missing %s", want)
 		}
@@ -95,7 +95,7 @@ func TestBookingCreate_DateRange(t *testing.T) {
 
 	// 14-day booking.
 	r := post(t, u, ts.URL+"/bookings/create", url.Values{
-		"slot": {"ho"}, "startDate": {day(1)}, "endDate": {day(14)}, "purpose": {"regression"}})
+		"slot": {"ho"}, "name": {"Brian"}, "team": {"QA"}, "startDate": {day(1)}, "endDate": {day(14)}, "purpose": {"regression"}})
 	r.Body.Close()
 	if loc := r.Header.Get("Location"); !strings.Contains(loc, "notice=") {
 		t.Fatalf("14-day booking should succeed, redirect=%q", loc)
@@ -104,14 +104,17 @@ func TestBookingCreate_DateRange(t *testing.T) {
 	if len(active) != 1 || active[0].End.Sub(active[0].Start) != 14*24*time.Hour-time.Second {
 		t.Fatalf("stored booking wrong: %+v", active)
 	}
+	if active[0].Name != "Brian" || active[0].Team != "QA" || active[0].Username != "qa" {
+		t.Fatalf("booking should preserve display details and account username: %+v", active[0])
+	}
 
 	// Any day inside that range is taken for someone else; the day after is free.
-	r = post(t, other, ts.URL+"/bookings/create", url.Values{"slot": {"ho"}, "startDate": {day(7)}})
+	r = post(t, other, ts.URL+"/bookings/create", url.Values{"slot": {"ho"}, "name": {"Devi"}, "team": {"QA"}, "startDate": {day(7)}, "purpose": {"smoke"}})
 	r.Body.Close()
-	if loc := r.Header.Get("Location"); !strings.Contains(loc, "already+booked+by+qa") {
+	if loc := r.Header.Get("Location"); !strings.Contains(loc, "already+booked+by+Brian") {
 		t.Fatalf("overlap inside the range must be refused, redirect=%q", loc)
 	}
-	r = post(t, other, ts.URL+"/bookings/create", url.Values{"slot": {"ho"}, "startDate": {day(15)}})
+	r = post(t, other, ts.URL+"/bookings/create", url.Values{"slot": {"ho"}, "name": {"Devi"}, "team": {"QA"}, "startDate": {day(15)}, "purpose": {"smoke"}})
 	r.Body.Close()
 	if loc := r.Header.Get("Location"); !strings.Contains(loc, "notice=") {
 		t.Fatalf("the day after the range should be free, redirect=%q", loc)
@@ -119,10 +122,36 @@ func TestBookingCreate_DateRange(t *testing.T) {
 
 	// Over the limit is refused with a clear message.
 	r = post(t, u, ts.URL+"/bookings/create", url.Values{
-		"slot": {"ho"}, "startDate": {day(40)}, "endDate": {day(40 + maxBookingDays)}})
+		"slot": {"ho"}, "name": {"Brian"}, "team": {"QA"}, "startDate": {day(40)}, "endDate": {day(40 + maxBookingDays)}, "purpose": {"regression"}})
 	r.Body.Close()
 	if loc := r.Header.Get("Location"); !strings.Contains(loc, "at+most+30+days") {
 		t.Fatalf("too-long booking must be refused, redirect=%q", loc)
+	}
+}
+
+func TestBookingCreate_ConflictFallsBackToUsernameWhenNameIsEmpty(t *testing.T) {
+	ts, st := newTestServer(t, "ho")
+	provisionAndLogin(t, ts, st, "legacy-owner", store.RoleEngineering)
+	requester := provisionAndLogin(t, ts, st, "qa", store.RoleEngineering)
+	owner, err := st.UserByUsername("legacy-owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start, end, err := parseBookingRange(day(1), "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateReservationWithDetails("ho", owner.ID, owner.Username, "", "", "legacy", start, end); err != nil {
+		t.Fatal(err)
+	}
+
+	r := post(t, requester, ts.URL+"/bookings/create", url.Values{
+		"slot": {"ho"}, "name": {"QA User"}, "team": {"QA"}, "startDate": {day(1)}, "purpose": {"smoke"},
+	})
+	r.Body.Close()
+	if loc := r.Header.Get("Location"); !strings.Contains(loc, "already+booked+by+legacy-owner") {
+		t.Fatalf("empty booking name should fall back to username, redirect=%q", loc)
 	}
 }
 
@@ -134,9 +163,9 @@ func TestBookingPage_SendsBookedDaysPerSlot(t *testing.T) {
 	// A hostile purpose must not be able to break out of the <script> block.
 	evil := `</script><script>alert("x")</script>`
 	r := post(t, owner, ts.URL+"/bookings/create", url.Values{
-		"slot": {"ho"}, "startDate": {day(2)}, "endDate": {day(4)}, "purpose": {evil}})
+		"slot": {"ho"}, "name": {"Budi"}, "team": {"Platform"}, "startDate": {day(2)}, "endDate": {day(4)}, "purpose": {evil}})
 	r.Body.Close()
-	r = post(t, owner, ts.URL+"/bookings/create", url.Values{"slot": {"dev-09"}, "startDate": {day(6)}})
+	r = post(t, owner, ts.URL+"/bookings/create", url.Values{"slot": {"dev-09"}, "name": {"Budi"}, "team": {"Platform"}, "startDate": {day(6)}, "purpose": {"regression"}})
 	r.Body.Close()
 
 	page := body(t, viewer, ts.URL+"/bookings")
@@ -146,7 +175,7 @@ func TestBookingPage_SendsBookedDaysPerSlot(t *testing.T) {
 	}
 	data := page[i : i+strings.Index(page[i:], ";\n")]
 
-	for _, want := range []string{`"ho":[`, `"dev-09":[`, `"user":"budi"`, `"s":"` + day(2) + `"`, `"e":"` + day(4) + `"`, `"mine":false`} {
+	for _, want := range []string{`"ho":[`, `"dev-09":[`, `"name":"Budi"`, `"team":"Platform"`, `"s":"` + day(2) + `"`, `"e":"` + day(4) + `"`, `"mine":false`} {
 		if !strings.Contains(data, want) {
 			t.Fatalf("booked data missing %s:\n%s", want, data)
 		}

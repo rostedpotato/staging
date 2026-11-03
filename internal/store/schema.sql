@@ -41,6 +41,8 @@ CREATE TABLE IF NOT EXISTS reservations (
     slot         TEXT NOT NULL,
     user_id      INTEGER NOT NULL REFERENCES users(id),
     username     TEXT NOT NULL DEFAULT '',
+    name         TEXT NOT NULL DEFAULT '',
+    team         TEXT NOT NULL DEFAULT '',
     purpose      TEXT NOT NULL DEFAULT '',
     start_time   TEXT NOT NULL,
     end_time     TEXT NOT NULL,

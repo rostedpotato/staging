@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"strings"
 	"time"
 
 	"parkee/staging-platform/internal/auth"
@@ -27,7 +28,8 @@ const maxBookingDays = 30
 type bookedRange struct {
 	Start   string `json:"s"`
 	End     string `json:"e"`
-	User    string `json:"user"`
+	Name    string `json:"name"`
+	Team    string `json:"team"`
 	Purpose string `json:"purpose"`
 	Mine    bool   `json:"mine"`
 }
@@ -60,7 +62,8 @@ func (s *Server) handleBookings(w http.ResponseWriter, r *http.Request) {
 		booked[res.Slot] = append(booked[res.Slot], bookedRange{
 			Start:   res.Start.In(bookingLoc).Format("2006-01-02"),
 			End:     res.End.In(bookingLoc).Format("2006-01-02"),
-			User:    res.Username,
+			Name:    res.Name,
+			Team:    res.Team,
 			Purpose: res.Purpose,
 			Mine:    res.UserID == u.ID,
 		})
@@ -86,7 +89,25 @@ func (s *Server) handleBookingCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	u := auth.UserFrom(r.Context())
 	slot := r.FormValue("slot")
-	purpose := r.FormValue("purpose")
+	name := strings.TrimSpace(r.FormValue("name"))
+	team := strings.TrimSpace(r.FormValue("team"))
+	purpose := strings.TrimSpace(r.FormValue("purpose"))
+	if name == "" {
+		redirectBookings(w, r, "", "name is required")
+		return
+	}
+	if team == "" {
+		redirectBookings(w, r, "", "team is required")
+		return
+	}
+	if purpose == "" {
+		redirectBookings(w, r, "", "purpose is required")
+		return
+	}
+	if len(name) > 120 || len(team) > 120 || len(purpose) > 200 {
+		redirectBookings(w, r, "", "name and team must be at most 120 characters; purpose must be at most 200 characters")
+		return
+	}
 	startDate, endDate := r.FormValue("startDate"), r.FormValue("endDate")
 	start, end, err := parseBookingRange(startDate, endDate)
 	if err != nil {
@@ -98,11 +119,18 @@ func (s *Server) handleBookingCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	res, err := s.st.CreateReservation(slot, u.ID, u.Username, purpose, start, end)
+	res, err := s.st.CreateReservationWithDetails(slot, u.ID, u.Username, name, team, purpose, start, end)
 	if err != nil {
 		var conflict *store.ConflictError
 		if errors.As(err, &conflict) {
-			redirectBookings(w, r, "", "That slot is already booked by "+conflict.Username+
+			by := conflict.Name
+			if by == "" {
+				by = conflict.Username
+			}
+			if conflict.Team != "" {
+				by += " (" + conflict.Team + ")"
+			}
+			redirectBookings(w, r, "", "That slot is already booked by "+by+
 				" until "+conflict.Until.Local().Format("2006-01-02 15:04")+
 				" — reach out to them if you need it sooner.")
 			return
@@ -111,7 +139,7 @@ func (s *Server) handleBookingCreate(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.st.Audit(u.ID, u.Username, "RESERVE", "reservation", strconv.FormatInt(res.ID, 10),
-		map[string]any{"slot": slot, "start": start, "end": end, "purpose": purpose})
+		map[string]any{"slot": slot, "start": start, "end": end, "name": name, "team": team, "purpose": purpose})
 	when := startDate
 	if endDate != "" && endDate != startDate {
 		when += " to " + endDate

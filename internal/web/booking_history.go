@@ -31,6 +31,8 @@ const (
 type historyRow struct {
 	Slot         string
 	Username     string
+	Name         string
+	Team         string
 	Purpose      string
 	Status       string
 	Dates        string // booked dates, e.g. "2026-10-15 → 2026-10-22 (8 days)"
@@ -83,12 +85,14 @@ func mergeable(r store.Reservation) bool {
 	return r.Status == store.ResActive || r.Status == store.ResExpired
 }
 
-// groupHistory merges back-to-back bookings of the same person, env and
-// purpose into one row each, then sorts the rows by sortKey.
+// groupHistory merges back-to-back bookings of the same account, display name,
+// team, env and purpose into one row each, then sorts the rows by sortKey.
 func groupHistory(rs []store.Reservation, now time.Time, sortKey string) []historyRow {
 	items := append([]store.Reservation(nil), rs...)
 	sort.SliceStable(items, func(i, j int) bool {
 		a, b := items[i], items[j]
+		// Keep the old ordering keys first so adding name/team snapshots does
+		// not reorder legacy rows, whose names are backfilled from username.
 		switch {
 		case a.Slot != b.Slot:
 			return a.Slot < b.Slot
@@ -96,6 +100,10 @@ func groupHistory(rs []store.Reservation, now time.Time, sortKey string) []histo
 			return a.Username < b.Username
 		case a.Purpose != b.Purpose:
 			return a.Purpose < b.Purpose
+		case a.Name != b.Name:
+			return a.Name < b.Name
+		case a.Team != b.Team:
+			return a.Team < b.Team
 		}
 		return a.Start.Before(b.Start)
 	})
@@ -104,7 +112,7 @@ func groupHistory(rs []store.Reservation, now time.Time, sortKey string) []histo
 		if n := len(runs); n > 0 && mergeable(r) {
 			last := runs[n-1][len(runs[n-1])-1]
 			if mergeable(last) && last.Slot == r.Slot && last.Username == r.Username &&
-				last.Purpose == r.Purpose && !r.Start.After(last.End.Add(time.Minute)) {
+				last.Purpose == r.Purpose && last.Name == r.Name && last.Team == r.Team && !r.Start.After(last.End.Add(time.Minute)) {
 				runs[n-1] = append(runs[n-1], r)
 				continue
 			}
@@ -121,7 +129,7 @@ func groupHistory(rs []store.Reservation, now time.Time, sortKey string) []histo
 
 func historyRowFor(run []store.Reservation, now time.Time) historyRow {
 	first := run[0]
-	row := historyRow{Slot: first.Slot, Username: first.Username, Purpose: first.Purpose, Start: first.Start}
+	row := historyRow{Slot: first.Slot, Username: first.Username, Name: first.Name, Team: first.Team, Purpose: first.Purpose, Start: first.Start}
 	end := first.End
 	created := first.CreatedTime()
 	running, anyActive := false, false
@@ -308,7 +316,7 @@ func buildMatrix(envs []string, rs []store.Reservation, now time.Time, meID int6
 			}
 			past := !live[i] || i < historyDaysBack
 			j := i + 1
-			for j < n && owner[j] != nil && owner[j].Username == o.Username && owner[j].Purpose == o.Purpose &&
+			for j < n && owner[j] != nil && owner[j].Username == o.Username && owner[j].Name == o.Name && owner[j].Team == o.Team && owner[j].Purpose == o.Purpose &&
 				(!live[j] || j < historyDaysBack) == past {
 				j++
 			}
@@ -343,7 +351,10 @@ func segmentCell(members []*store.Reservation, past bool, meID int64, now time.T
 	if meID != 0 && o.UserID == meID {
 		cls += " mine"
 	}
-	who := o.Username
+	who := o.Name
+	if o.Team != "" {
+		who += " · " + o.Team
+	}
 	if o.Purpose != "" {
 		who += " — " + o.Purpose
 	}
@@ -361,5 +372,5 @@ func segmentCell(members []*store.Reservation, past bool, meID int64, now time.T
 	if same {
 		lines = append(lines, "booked "+fmtStamp(o.CreatedTime()))
 	}
-	return matrixCell{Span: len(members), Class: cls, User: o.Username, Tip: strings.Join(lines, "\n"), Hue: userHue(o.Username)}
+	return matrixCell{Span: len(members), Class: cls, User: o.Name, Tip: strings.Join(lines, "\n"), Hue: userHue(o.Username)}
 }

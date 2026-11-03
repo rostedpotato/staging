@@ -20,6 +20,8 @@ var ErrConflict = errors.New("slot already reserved for that time window")
 // booking, so the UI can tell the requester who to go negotiate with.
 type ConflictError struct {
 	Username string
+	Name     string
+	Team     string
 	Until    time.Time
 }
 
@@ -31,6 +33,8 @@ type Reservation struct {
 	Slot       string
 	UserID     int64
 	Username   string
+	Name       string
+	Team       string
 	Purpose    string
 	Start      time.Time
 	End        time.Time
@@ -62,6 +66,12 @@ func (r Reservation) CreatedTime() time.Time { return parseTime(r.CreatedAt) }
 // other active bookings of the same slot. The check + insert run in one
 // transaction so two simultaneous requests cannot both succeed.
 func (s *Store) CreateReservation(slot string, userID int64, username, purpose string, start, end time.Time) (*Reservation, error) {
+	return s.CreateReservationWithDetails(slot, userID, username, username, "", purpose, start, end)
+}
+
+// CreateReservationWithDetails inserts a booking with the display name and
+// team supplied by the requester after checking for overlap.
+func (s *Store) CreateReservationWithDetails(slot string, userID int64, username, name, team, purpose string, start, end time.Time) (*Reservation, error) {
 	if !end.After(start) {
 		return nil, errors.New("end time must be after start time")
 	}
@@ -74,28 +84,28 @@ func (s *Store) CreateReservation(slot string, userID int64, username, purpose s
 	// Overlap: existing.start < new.end AND existing.end > new.start. Grab
 	// who holds it too, so the caller can show "booked by X until Y" instead
 	// of a generic conflict message.
-	var otherUser string
+	var otherUser, otherName, otherTeam string
 	var otherEnd string
 	err = tx.QueryRow(`
-		SELECT username, end_time FROM reservations
+		SELECT username, name, team, end_time FROM reservations
 		WHERE slot = ? AND status = 'active'
 		  AND start_time < ? AND end_time > ?
 		LIMIT 1`,
 		slot, end.UTC().Format(time.RFC3339), start.UTC().Format(time.RFC3339)).
-		Scan(&otherUser, &otherEnd)
+		Scan(&otherUser, &otherName, &otherTeam, &otherEnd)
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return nil, err
 	}
 	if err == nil {
-		return nil, &ConflictError{Username: otherUser, Until: parseTime(otherEnd)}
+		return nil, &ConflictError{Username: otherUser, Name: otherName, Team: otherTeam, Until: parseTime(otherEnd)}
 	}
 
 	now := nowUTC()
 	res, err := tx.Exec(`
 		INSERT INTO reservations
-			(slot, user_id, username, purpose, start_time, end_time, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, 'active', ?)`,
-		slot, userID, username, purpose,
+			(slot, user_id, username, name, team, purpose, start_time, end_time, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?)`,
+		slot, userID, username, name, team, purpose,
 		start.UTC().Format(time.RFC3339), end.UTC().Format(time.RFC3339), now)
 	if err != nil {
 		return nil, err
@@ -105,7 +115,7 @@ func (s *Store) CreateReservation(slot string, userID int64, username, purpose s
 		return nil, err
 	}
 	return &Reservation{
-		ID: id, Slot: slot, UserID: userID, Username: username, Purpose: purpose,
+		ID: id, Slot: slot, UserID: userID, Username: username, Name: name, Team: team, Purpose: purpose,
 		Start: start, End: end, Status: ResActive, CreatedAt: now,
 	}, nil
 }
@@ -115,7 +125,7 @@ func (s *Store) CreateReservation(slot string, userID int64, username, purpose s
 func (s *Store) ActiveForSlot(slot string) (*Reservation, error) {
 	s.ExpireDue()
 	row := s.db.QueryRow(`
-		SELECT id, slot, user_id, username, purpose, start_time, end_time, status, created_at, released_at
+		SELECT id, slot, user_id, username, name, team, purpose, start_time, end_time, status, created_at, released_at
 		FROM reservations
 		WHERE slot = ? AND status = 'active' AND start_time <= ? AND end_time > ?
 		ORDER BY start_time LIMIT 1`,
@@ -127,7 +137,7 @@ func (s *Store) ActiveForSlot(slot string) (*Reservation, error) {
 func (s *Store) ListActive() ([]Reservation, error) {
 	s.ExpireDue()
 	rows, err := s.db.Query(`
-		SELECT id, slot, user_id, username, purpose, start_time, end_time, status, created_at, released_at
+		SELECT id, slot, user_id, username, name, team, purpose, start_time, end_time, status, created_at, released_at
 		FROM reservations WHERE status = 'active' ORDER BY slot, start_time`)
 	if err != nil {
 		return nil, err
@@ -142,7 +152,7 @@ func (s *Store) ListForUser(userID int64, limit int) ([]Reservation, error) {
 		limit = 50
 	}
 	rows, err := s.db.Query(`
-		SELECT id, slot, user_id, username, purpose, start_time, end_time, status, created_at, released_at
+		SELECT id, slot, user_id, username, name, team, purpose, start_time, end_time, status, created_at, released_at
 		FROM reservations WHERE user_id = ? ORDER BY id DESC LIMIT ?`, userID, limit)
 	if err != nil {
 		return nil, err
@@ -174,7 +184,7 @@ func (s *Store) ListHistory(from, to time.Time, slot, sortKey string) ([]Reserva
 	}
 	args := []any{to.UTC().Format(time.RFC3339), from.UTC().Format(time.RFC3339)}
 	q := `
-		SELECT id, slot, user_id, username, purpose, start_time, end_time, status, created_at, released_at
+		SELECT id, slot, user_id, username, name, team, purpose, start_time, end_time, status, created_at, released_at
 		FROM reservations
 		WHERE start_time < ? AND end_time > ?`
 	if slot != "" {
@@ -192,7 +202,7 @@ func (s *Store) ListHistory(from, to time.Time, slot, sortKey string) ([]Reserva
 
 func (s *Store) ReservationByID(id int64) (*Reservation, error) {
 	row := s.db.QueryRow(`
-		SELECT id, slot, user_id, username, purpose, start_time, end_time, status, created_at, released_at
+		SELECT id, slot, user_id, username, name, team, purpose, start_time, end_time, status, created_at, released_at
 		FROM reservations WHERE id = ?`, id)
 	return scanRes(row)
 }
@@ -245,7 +255,7 @@ func scanRes(row rowScanner) (*Reservation, error) {
 	var r Reservation
 	var start, end string
 	var released sql.NullString
-	err := row.Scan(&r.ID, &r.Slot, &r.UserID, &r.Username, &r.Purpose,
+	err := row.Scan(&r.ID, &r.Slot, &r.UserID, &r.Username, &r.Name, &r.Team, &r.Purpose,
 		&start, &end, &r.Status, &r.CreatedAt, &released)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -266,7 +276,7 @@ func scanResList(rows *sql.Rows) ([]Reservation, error) {
 		var r Reservation
 		var start, end string
 		var released sql.NullString
-		if err := rows.Scan(&r.ID, &r.Slot, &r.UserID, &r.Username, &r.Purpose,
+		if err := rows.Scan(&r.ID, &r.Slot, &r.UserID, &r.Username, &r.Name, &r.Team, &r.Purpose,
 			&start, &end, &r.Status, &r.CreatedAt, &released); err != nil {
 			return nil, err
 		}

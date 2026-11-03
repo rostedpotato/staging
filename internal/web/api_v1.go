@@ -43,6 +43,8 @@ type apiBooking struct {
 	ID       int64  `json:"id"`
 	Slot     string `json:"slot"`
 	Username string `json:"username"`
+	Name     string `json:"name"`
+	Team     string `json:"team"`
 	Purpose  string `json:"purpose"`
 	// Start/End are the planned window; EffectiveEnd is when the booking
 	// really stopped holding the env (earlier than End if released early).
@@ -56,7 +58,7 @@ type apiBooking struct {
 
 func toAPIBooking(r store.Reservation) apiBooking {
 	b := apiBooking{
-		ID: r.ID, Slot: r.Slot, Username: r.Username, Purpose: r.Purpose,
+		ID: r.ID, Slot: r.Slot, Username: r.Username, Name: r.Name, Team: r.Team, Purpose: r.Purpose,
 		Start:        r.Start.In(bookingLoc),
 		End:          r.End.In(bookingLoc),
 		EffectiveEnd: r.EffectiveEnd().In(bookingLoc),
