@@ -180,12 +180,18 @@ func (s *Service) Rollback(ctx context.Context, fromID int64, userID int64, user
 	})
 }
 
-// checkBooking enforces the booking policy (admins bypass, per config).
+// checkBooking enforces the booking policy (admins bypass, per config). A
+// booking's owner and its approved co-owner (see store.IsHolder) are both
+// allowed to deploy.
 func (s *Service) checkBooking(req Request) error {
 	if !s.cfg.Deploy.RequireBooking || req.IsAdmin {
 		// Even when not required, block deploying over someone else's active booking.
-		if res, _ := s.st.ActiveForSlot(req.Slot); res != nil && res.UserID != req.UserID && !req.IsAdmin {
-			return ErrBookedOther
+		if res, _ := s.st.ActiveForSlot(req.Slot); res != nil && !req.IsAdmin {
+			if holder, err := s.st.IsHolder(*res, req.UserID); err != nil {
+				return err
+			} else if !holder {
+				return ErrBookedOther
+			}
 		}
 		return nil
 	}
@@ -196,7 +202,11 @@ func (s *Service) checkBooking(req Request) error {
 	if res == nil {
 		return ErrNotBooked
 	}
-	if res.UserID != req.UserID {
+	holder, err := s.st.IsHolder(*res, req.UserID)
+	if err != nil {
+		return err
+	}
+	if !holder {
 		return ErrBookedOther
 	}
 	return nil

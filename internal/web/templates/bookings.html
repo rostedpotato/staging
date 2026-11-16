@@ -37,7 +37,20 @@
       <label class="wide"><span>Purpose <span class="required-mark">*</span></span> <input type="text" name="purpose" placeholder="e.g. Payment QA" maxlength="200" required></label>
       <div class="calwrap">
         <div class="cal-label">Dates <span class="required-mark">*</span></div>
-        <div class="cal" id="bookCal"></div>
+        <div class="cal-row">
+          <div class="cal" id="bookCal"></div>
+          <aside class="collab-howto" aria-label="How to use co-owners">
+            <div class="collab-howto-title">Pairing with someone else? Add a co-owner</div>
+            <p>A QA and an engineer working the same task can both get deploy access to one booking — one owner, one co-owner.</p>
+            <ol>
+              <li>Book the slot as usual. You become its <b>owner</b>.</li>
+              <li>Your partner opens this page, types their team in the <b>Co-owner</b> column of that booking, and clicks <b>Request to join</b>.</li>
+              <li>You see the request on the same row and click <b>Approve</b> (or <b>Reject</b>).</li>
+              <li>Once approved, your partner can deploy to that slot too, until the booking ends. Either of you can end it early: they click <b>Leave</b>, or you click <b>Revoke</b>.</li>
+            </ol>
+            <p class="hint">Only one co-owner at a time per booking.</p>
+          </aside>
+        </div>
         <div class="cal-legend">
           <span><i class="sw sw-sel"></i>Selected</span>
           <span><i class="sw sw-booked"></i>Booked by someone else</span>
@@ -300,10 +313,13 @@
 
   <section class="panel">
     <h2>Current &amp; upcoming bookings</h2>
+    <p class="hint">An env can have one owner and, once approved by the owner, one co-owner — handy when a QA and an engineer are paired on the same task and both need deploy access.</p>
     <table class="audit">
-      <thead><tr><th>Slot</th><th>Name</th><th>Team</th><th>From</th><th>Until</th><th>Purpose</th><th></th></tr></thead>
+      <thead><tr><th>Slot</th><th>Name</th><th>Team</th><th>From</th><th>Until</th><th>Purpose</th><th>Co-owner</th><th></th></tr></thead>
       <tbody>
         {{range .Active}}
+          {{$res := .}}
+          {{$collab := index $.Collab .ID}}
           <tr>
             <td><b>{{.Slot}}</b></td>
             <td>{{.Name}}</td>
@@ -311,6 +327,46 @@
             <td>{{fmtDate .Start}}</td>
             <td>{{fmtDate .End}}</td>
             <td>{{.Purpose}}</td>
+            <td>
+              {{if $collab.Approved}}
+                <span class="tag st-success">{{$collab.Approved.Name}}{{if $collab.Approved.Team}} ({{$collab.Approved.Team}}){{end}}</span>
+                {{if eq $collab.Approved.Username $.Username}}
+                <form method="post" action="/bookings/collab/leave" onsubmit="return confirm('Give up your co-owner access to this booking?');">
+                  <input type="hidden" name="id" value="{{$collab.Approved.ID}}">
+                  <button class="btn small danger" type="submit">Leave</button>
+                </form>
+                {{else if or (eq $res.Username $.Username) $.IsAdmin}}
+                <form method="post" action="/bookings/collab/revoke" onsubmit="return confirm('Remove {{$collab.Approved.Name}} as co-owner?');">
+                  <input type="hidden" name="id" value="{{$collab.Approved.ID}}">
+                  <button class="btn small danger" type="submit">Revoke</button>
+                </form>
+                {{end}}
+              {{else if $collab.PendingForOwner}}
+                <span class="tag st-queued">{{$collab.PendingForOwner.Name}}{{if $collab.PendingForOwner.Team}} ({{$collab.PendingForOwner.Team}}){{end}} wants to join</span>
+                <form method="post" action="/bookings/collab/decide" class="inline-actions">
+                  <input type="hidden" name="id" value="{{$collab.PendingForOwner.ID}}">
+                  <input type="hidden" name="decision" value="approve">
+                  <button class="btn small" type="submit">Approve</button>
+                </form>
+                <form method="post" action="/bookings/collab/decide" class="inline-actions">
+                  <input type="hidden" name="id" value="{{$collab.PendingForOwner.ID}}">
+                  <input type="hidden" name="decision" value="reject">
+                  <button class="btn small danger" type="submit">Reject</button>
+                </form>
+              {{else if $collab.MyRequest}}
+                <span class="tag st-queued hint">Waiting for approval</span>
+              {{else if $collab.OthersPending}}
+                <span class="tag hint">Request pending</span>
+              {{else if $collab.CanRequest}}
+                <form method="post" action="/bookings/collab/request" class="collabform">
+                  <input type="hidden" name="id" value="{{.ID}}">
+                  <input type="text" name="team" placeholder="your team" maxlength="120" required>
+                  <button class="btn small" type="submit">Request to join</button>
+                </form>
+              {{else}}
+                <span class="hint">—</span>
+              {{end}}
+            </td>
             <td>
               {{if or (eq .Username $.Username) $.IsAdmin}}
               <form method="post" action="/bookings/release" onsubmit="return confirm('Release this booking?');">
@@ -323,7 +379,7 @@
             </td>
           </tr>
         {{else}}
-          <tr><td colspan="7" class="empty">No active bookings.</td></tr>
+          <tr><td colspan="8" class="empty">No active bookings.</td></tr>
         {{end}}
       </tbody>
     </table>

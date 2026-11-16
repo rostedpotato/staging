@@ -113,6 +113,11 @@ td.empty { color: var(--muted); text-align: center; padding: 20px; }
 .btn.small { width: auto; margin: 0; padding: 5px 10px; font-size: 12px; }
 .btn.danger { border-color: var(--down); color: #ffb4b4; }
 
+/* co-owner request/approve controls inline in the bookings table */
+.collabform { display: flex; gap: 6px; align-items: center; }
+.collabform input[type="text"] { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: #0c0e13; color: var(--text); font-size: 12px; width: 110px; }
+.inline-actions { display: inline-block; margin: 0 4px 4px 0; }
+
 /* required-field marker: bright enough to be obvious on a dark background */
 .required-mark { color: #ff6b6b; font-weight: 700; }
 
@@ -165,7 +170,17 @@ td.actions form { margin: 0; }
 /* booking calendar: click one date for a day, a second date for a range */
 .calwrap { flex-basis: 100%; display: flex; flex-direction: column; align-items: flex-start; gap: 6px; }
 .cal-label { font-size: 12px; color: var(--muted); }
+.cal-row { display: flex; gap: 16px; flex-wrap: wrap; align-items: flex-start; width: 100%; }
 .cal { position: relative; display: inline-block; max-width: 100%; padding: 12px; border: 1px solid var(--line); border-radius: 10px; background: #0c0e13; }
+
+/* co-owner how-to note next to the booking calendar */
+.collab-howto { flex: 1; min-width: 240px; max-width: 320px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 10px; background: #0c0e13; font-size: 12px; color: var(--muted); }
+.collab-howto-title { color: var(--text); font-weight: 600; margin-bottom: 6px; }
+.collab-howto p { margin: 0 0 8px; }
+.collab-howto ol { margin: 0 0 8px; padding-left: 18px; }
+.collab-howto li { margin-bottom: 4px; }
+.collab-howto b { color: var(--text); }
+.collab-howto .hint { margin: 0; }
 .cal-bar { position: absolute; top: 10px; left: 12px; right: 12px; display: flex; justify-content: space-between; pointer-events: none; }
 .cal-nav { pointer-events: auto; width: 28px; height: 28px; border-radius: 6px; border: 1px solid var(--line); background: var(--card); color: var(--text); font-size: 18px; line-height: 1; cursor: pointer; }
 .cal-nav:hover:not(:disabled) { border-color: #3a4152; }
