@@ -300,10 +300,13 @@
 
   <section class="panel">
     <h2>Current &amp; upcoming bookings</h2>
+    <p class="hint">An env can have one owner and, once approved by the owner, one co-owner — handy when a QA and an engineer are paired on the same task and both need deploy access.</p>
     <table class="audit">
-      <thead><tr><th>Slot</th><th>Name</th><th>Team</th><th>From</th><th>Until</th><th>Purpose</th><th></th></tr></thead>
+      <thead><tr><th>Slot</th><th>Name</th><th>Team</th><th>From</th><th>Until</th><th>Purpose</th><th>Co-owner</th><th></th></tr></thead>
       <tbody>
         {{range .Active}}
+          {{$res := .}}
+          {{$collab := index $.Collab .ID}}
           <tr>
             <td><b>{{.Slot}}</b></td>
             <td>{{.Name}}</td>
@@ -311,6 +314,46 @@
             <td>{{fmtDate .Start}}</td>
             <td>{{fmtDate .End}}</td>
             <td>{{.Purpose}}</td>
+            <td>
+              {{if $collab.Approved}}
+                <span class="tag st-success">{{$collab.Approved.Name}}{{if $collab.Approved.Team}} ({{$collab.Approved.Team}}){{end}}</span>
+                {{if eq $collab.Approved.Username $.Username}}
+                <form method="post" action="/bookings/collab/leave" onsubmit="return confirm('Give up your co-owner access to this booking?');">
+                  <input type="hidden" name="id" value="{{$collab.Approved.ID}}">
+                  <button class="btn small danger" type="submit">Leave</button>
+                </form>
+                {{else if or (eq $res.Username $.Username) $.IsAdmin}}
+                <form method="post" action="/bookings/collab/revoke" onsubmit="return confirm('Remove {{$collab.Approved.Name}} as co-owner?');">
+                  <input type="hidden" name="id" value="{{$collab.Approved.ID}}">
+                  <button class="btn small danger" type="submit">Revoke</button>
+                </form>
+                {{end}}
+              {{else if $collab.PendingForOwner}}
+                <span class="tag st-queued">{{$collab.PendingForOwner.Name}}{{if $collab.PendingForOwner.Team}} ({{$collab.PendingForOwner.Team}}){{end}} wants to join</span>
+                <form method="post" action="/bookings/collab/decide" class="inline-actions">
+                  <input type="hidden" name="id" value="{{$collab.PendingForOwner.ID}}">
+                  <input type="hidden" name="decision" value="approve">
+                  <button class="btn small" type="submit">Approve</button>
+                </form>
+                <form method="post" action="/bookings/collab/decide" class="inline-actions">
+                  <input type="hidden" name="id" value="{{$collab.PendingForOwner.ID}}">
+                  <input type="hidden" name="decision" value="reject">
+                  <button class="btn small danger" type="submit">Reject</button>
+                </form>
+              {{else if $collab.MyRequest}}
+                <span class="tag st-queued hint">Waiting for approval</span>
+              {{else if $collab.OthersPending}}
+                <span class="tag hint">Request pending</span>
+              {{else if $collab.CanRequest}}
+                <form method="post" action="/bookings/collab/request" class="collabform">
+                  <input type="hidden" name="id" value="{{.ID}}">
+                  <input type="text" name="team" placeholder="your team" maxlength="120" required>
+                  <button class="btn small" type="submit">Request to join</button>
+                </form>
+              {{else}}
+                <span class="hint">—</span>
+              {{end}}
+            </td>
             <td>
               {{if or (eq .Username $.Username) $.IsAdmin}}
               <form method="post" action="/bookings/release" onsubmit="return confirm('Release this booking?');">
@@ -323,7 +366,7 @@
             </td>
           </tr>
         {{else}}
-          <tr><td colspan="7" class="empty">No active bookings.</td></tr>
+          <tr><td colspan="8" class="empty">No active bookings.</td></tr>
         {{end}}
       </tbody>
     </table>

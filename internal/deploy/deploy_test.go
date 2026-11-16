@@ -215,6 +215,109 @@ func TestBookedByOtherBlocks(t *testing.T) {
 	}
 }
 
+// An approved co-owner may deploy just like the booking's owner; a merely
+// pending or rejected co-owner may not, and loses access once the booking
+// itself ends.
+func TestApprovedCoOwnerCanDeploy(t *testing.T) {
+	prov := &mockProvider{result: "SUCCESS"}
+	svc, st := newTestSvc(t, prov, true) // booking required
+	owner := mkUser(t, st, "qa1")
+	eng := mkUser(t, st, "eng1")
+
+	res, err := st.CreateReservation("dev-11", owner.ID, owner.Username, "qa",
+		time.Now().Add(-time.Minute), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	engReq := Request{Slot: "dev-11", Service: "ws", RefType: "branch", Ref: "m", UserID: eng.ID, Username: eng.Username}
+
+	// Pending request: not yet a holder.
+	c, err := st.RequestCollaborator(res.ID, eng.ID, eng.Username, eng.Name, "team-y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Start(context.Background(), engReq); err != ErrBookedOther {
+		t.Fatalf("pending co-owner: expected ErrBookedOther, got %v", err)
+	}
+
+	// Approved: now a holder, deploy succeeds.
+	if err := st.DecideCollaborator(c.ID, true, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	dep, err := svc.Start(context.Background(), engReq)
+	if err != nil {
+		t.Fatalf("approved co-owner: expected allowed, got %v", err)
+	}
+	waitStatus(t, st, dep.ID, store.DepSuccess)
+
+	// Owner releases the booking: co-owner loses access even though the
+	// collaborator row itself is still "approved".
+	if err := st.Release(res.ID, store.ResReleased); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Start(context.Background(), engReq); err != ErrNotBooked {
+		t.Fatalf("after release: expected ErrNotBooked, got %v", err)
+	}
+}
+
+// A rejected co-owner request must not grant deploy access.
+func TestRejectedCoOwnerCannotDeploy(t *testing.T) {
+	prov := &mockProvider{result: "SUCCESS"}
+	svc, st := newTestSvc(t, prov, true)
+	owner := mkUser(t, st, "qa1")
+	eng := mkUser(t, st, "eng1")
+
+	res, err := st.CreateReservation("dev-12", owner.ID, owner.Username, "qa",
+		time.Now().Add(-time.Minute), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := st.RequestCollaborator(res.ID, eng.ID, eng.Username, eng.Name, "team-y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DecideCollaborator(c.ID, false, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Start(context.Background(), Request{
+		Slot: "dev-12", Service: "ws", RefType: "branch", Ref: "m", UserID: eng.ID, Username: eng.Username,
+	})
+	if err != ErrBookedOther {
+		t.Fatalf("rejected co-owner: expected ErrBookedOther, got %v", err)
+	}
+}
+
+// Even when RequireBooking is off, a revoked co-owner is blocked like any
+// stranger from deploying over someone else's active booking.
+func TestRevokedCoOwnerBlockedWhenBookingNotRequired(t *testing.T) {
+	prov := &mockProvider{result: "SUCCESS"}
+	svc, st := newTestSvc(t, prov, false)
+	owner := mkUser(t, st, "qa1")
+	eng := mkUser(t, st, "eng1")
+
+	res, err := st.CreateReservation("dev-13", owner.ID, owner.Username, "qa",
+		time.Now().Add(-time.Minute), time.Now().Add(time.Hour))
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := st.RequestCollaborator(res.ID, eng.ID, eng.Username, eng.Name, "team-y")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DecideCollaborator(c.ID, true, owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RevokeCollaborator(c.ID); err != nil {
+		t.Fatal(err)
+	}
+	_, err = svc.Start(context.Background(), Request{
+		Slot: "dev-13", Service: "ws", RefType: "branch", Ref: "m", UserID: eng.ID, Username: eng.Username,
+	})
+	if err != ErrBookedOther {
+		t.Fatalf("revoked co-owner: expected ErrBookedOther, got %v", err)
+	}
+}
+
 func TestTagNotAllowedForWBO(t *testing.T) {
 	prov := &mockProvider{result: "SUCCESS"}
 	svc, st := newTestSvc(t, prov, false)

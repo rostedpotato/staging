@@ -55,6 +55,24 @@ CREATE INDEX IF NOT EXISTS idx_res_status ON reservations(status);
 -- Fast lookup for overlap checks on active bookings of a slot.
 CREATE INDEX IF NOT EXISTS idx_res_active ON reservations(slot, status, start_time, end_time);
 
+-- A reservation may have at most one active (pending or approved) co-owner at
+-- a time; past requests (rejected/revoked) are kept as separate rows for
+-- history/audit instead of being overwritten.
+CREATE TABLE IF NOT EXISTS reservation_collaborators (
+    id             INTEGER PRIMARY KEY AUTOINCREMENT,
+    reservation_id INTEGER NOT NULL REFERENCES reservations(id),
+    user_id        INTEGER NOT NULL REFERENCES users(id),
+    username       TEXT NOT NULL DEFAULT '',
+    name           TEXT NOT NULL DEFAULT '',
+    team           TEXT NOT NULL DEFAULT '',
+    status         TEXT NOT NULL DEFAULT 'pending', -- pending | approved | rejected | revoked
+    requested_at   TEXT NOT NULL,
+    decided_at     TEXT,
+    decided_by     INTEGER REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_resc_reservation ON reservation_collaborators(reservation_id);
+CREATE INDEX IF NOT EXISTS idx_resc_user        ON reservation_collaborators(user_id);
+
 -- Phase 4: deployments triggered via Jenkins.
 CREATE TABLE IF NOT EXISTS deployments (
     id            INTEGER PRIMARY KEY AUTOINCREMENT,

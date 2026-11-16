@@ -113,6 +113,11 @@ td.empty { color: var(--muted); text-align: center; padding: 20px; }
 .btn.small { width: auto; margin: 0; padding: 5px 10px; font-size: 12px; }
 .btn.danger { border-color: var(--down); color: #ffb4b4; }
 
+/* co-owner request/approve controls inline in the bookings table */
+.collabform { display: flex; gap: 6px; align-items: center; }
+.collabform input[type="text"] { padding: 5px 8px; border-radius: 6px; border: 1px solid var(--line); background: #0c0e13; color: var(--text); font-size: 12px; width: 110px; }
+.inline-actions { display: inline-block; margin: 0 4px 4px 0; }
+
 /* required-field marker: bright enough to be obvious on a dark background */
 .required-mark { color: #ff6b6b; font-weight: 700; }
 
