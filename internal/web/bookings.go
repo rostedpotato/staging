@@ -108,16 +108,30 @@ func (s *Server) handleBookings(w http.ResponseWriter, r *http.Request) {
 }
 
 // collabViewsFor builds the per-reservation co-ownership view for everything
-// on the page, from viewerID's perspective. One extra query per active
-// reservation (CollaboratorsForReservation) keeps this simple; the bookings
-// page only ever lists a handful of active bookings at a time.
+// on the page, from viewerID's perspective.
+//
+// This must stay a single batch query (CollaboratorsForReservations) over
+// all active reservations, not a loop calling the singular
+// CollaboratorsForReservation per row: the bookings page can list many
+// active bookings at once, and one query per row would be classic N+1 -
+// linear round-trips to SQLite on every page load. Do not "simplify" this
+// back into a per-reservation call.
+//
+// CollaboratorsForReservations only returns pending/approved rows (never
+// rejected/revoked history), which is exactly what rendering needs here; it
+// is a different, smaller batch than full per-reservation history would be.
 func (s *Server) collabViewsFor(active []store.Reservation, viewerID int64) map[int64]collabView {
+	ids := make([]int64, len(active))
+	for i, res := range active {
+		ids[i] = res.ID
+	}
+	byRes, err := s.st.CollaboratorsForReservations(ids)
+	if err != nil {
+		return map[int64]collabView{}
+	}
 	out := make(map[int64]collabView, len(active))
 	for _, res := range active {
-		list, err := s.st.CollaboratorsForReservation(res.ID)
-		if err != nil {
-			continue
-		}
+		list := byRes[res.ID]
 		var v collabView
 		hasActive := false // any pending or approved row at all
 		for i := range list {
@@ -318,7 +332,11 @@ func (s *Server) handleCollabDecide(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleCollabLeave lets an approved co-owner give up their own access,
-// without touching the booking itself.
+// without touching the booking itself. It calls the same store.RevokeCollaborator
+// as handleCollabRevoke (owner/admin removing someone else) - the row ends
+// up with the same status='revoked' either way. The only place the two are
+// distinguished is the audit action below (LEAVE_COLLAB vs REVOKE_COLLAB);
+// see the comment on store.RevokeCollaborator for why that is intentional.
 func (s *Server) handleCollabLeave(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Redirect(w, r, "/bookings", http.StatusSeeOther)

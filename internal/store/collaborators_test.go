@@ -237,7 +237,7 @@ func TestPendingRequestsForOwner(t *testing.T) {
 	}
 }
 
-func TestActiveCollaboratorsForReservations(t *testing.T) {
+func TestCollaboratorsForReservations_ApprovedOnly(t *testing.T) {
 	st := newTestStore(t)
 	now := time.Now()
 	_, res1 := bookSlot(t, st, "dev-01", "qa1", now, now.Add(24*time.Hour))
@@ -252,23 +252,72 @@ func TestActiveCollaboratorsForReservations(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	m, err := st.ActiveCollaboratorsForReservations([]int64{res1.ID, res2.ID})
+	m, err := st.CollaboratorsForReservations([]int64{res1.ID, res2.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(m) != 1 {
 		t.Fatalf("map=%+v, want exactly res1", m)
 	}
-	if got, ok := m[res1.ID]; !ok || got.UserID != eng.ID {
-		t.Fatalf("res1 entry = %+v, ok=%v", got, ok)
+	if got := m[res1.ID]; len(got) != 1 || got[0].UserID != eng.ID {
+		t.Fatalf("res1 entry = %+v", got)
 	}
 	if _, ok := m[res2.ID]; ok {
-		t.Fatal("res2 must have no approved collaborator")
+		t.Fatal("res2 must have no collaborator rows")
 	}
 
 	// Empty input must not error and must return an empty map.
-	if m2, err := st.ActiveCollaboratorsForReservations(nil); err != nil || len(m2) != 0 {
+	if m2, err := st.CollaboratorsForReservations(nil); err != nil || len(m2) != 0 {
 		t.Fatalf("m2=%v err=%v", m2, err)
+	}
+}
+
+// Pending requests must be included (the bookings page needs them to render
+// Approve/Reject and "waiting" states), but rejected/revoked history must not
+// leak into this batch view.
+func TestCollaboratorsForReservations_PendingIncluded_HistoryExcluded(t *testing.T) {
+	st := newTestStore(t)
+	now := time.Now()
+	_, res1 := bookSlot(t, st, "dev-01", "qa1", now, now.Add(24*time.Hour))
+	_, res2 := bookSlot(t, st, "dev-02", "qa2", now, now.Add(24*time.Hour))
+	_, res3 := bookSlot(t, st, "dev-03", "qa3", now, now.Add(24*time.Hour))
+	eng1, _ := st.CreateUser("eng1", "Eng One", RoleEngineering, "TempPass123!")
+	eng2, _ := st.CreateUser("eng2", "Eng Two", RoleEngineering, "TempPass123!")
+	eng3, _ := st.CreateUser("eng3", "Eng Three", RoleEngineering, "TempPass123!")
+
+	// res1: pending request (never decided).
+	if _, err := st.RequestCollaborator(res1.ID, eng1.ID, eng1.Username, eng1.Name, "t"); err != nil {
+		t.Fatal(err)
+	}
+	// res2: rejected request (history, must be excluded).
+	c2, err := st.RequestCollaborator(res2.ID, eng2.ID, eng2.Username, eng2.Name, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DecideCollaborator(c2.ID, false, res2.UserID); err != nil {
+		t.Fatal(err)
+	}
+	// res3: approved then revoked (history, must be excluded).
+	c3, err := st.RequestCollaborator(res3.ID, eng3.ID, eng3.Username, eng3.Name, "t")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.DecideCollaborator(c3.ID, true, res3.UserID); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.RevokeCollaborator(c3.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	m, err := st.CollaboratorsForReservations([]int64{res1.ID, res2.ID, res3.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m) != 1 {
+		t.Fatalf("map=%+v, want only res1 (pending); res2/res3 are history", m)
+	}
+	if got := m[res1.ID]; len(got) != 1 || got[0].Status != CollabPending {
+		t.Fatalf("res1 entry = %+v", got)
 	}
 }
 

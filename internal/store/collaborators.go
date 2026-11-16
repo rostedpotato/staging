@@ -124,6 +124,19 @@ func (s *Store) DecideCollaborator(id int64, approve bool, decidedBy int64) erro
 // RevokeCollaborator ends an approved co-ownership: the co-owner leaving on
 // their own, or the owner/an admin removing them. Only an 'approved' row can
 // be revoked (a 'pending' request is rejected instead, via DecideCollaborator).
+//
+// Both cases land on the same 'revoked' status - there is no separate 'left'
+// status. Who ended it (self vs. owner/admin) is recorded only in the web
+// layer's audit log action (LEAVE_COLLAB vs REVOKE_COLLAB; see bookings.go),
+// not as a distinct store-level status. This is intentional: every place
+// that treats a collaborator as "currently active" only ever checks
+// status == approved (IsHolder, CollaboratorsForReservations, ...). Adding a
+// 'left' status would mean auditing and updating every one of those checks
+// for no behavioral difference - revoked and left both mean "not a holder
+// anymore". If a future requirement needs to distinguish them in the store
+// (not just in the audit trail), prefer adding it as a new column
+// (e.g. revoked_by, or a left_voluntarily bool) rather than a new status
+// value, so existing status == approved/revoked checks keep working.
 func (s *Store) RevokeCollaborator(id int64) error {
 	r, err := s.db.Exec(`
 		UPDATE reservation_collaborators SET status = 'revoked', decided_at = ?
@@ -158,16 +171,22 @@ func (s *Store) CollaboratorsForReservation(reservationID int64) ([]Collaborator
 	return scanCollabList(rows)
 }
 
-// ActiveCollaboratorsForReservations batches CollaboratorsForReservation's
-// "approved" view for many reservations at once (used when rendering the
-// bookings list), keyed by reservation id.
-func (s *Store) ActiveCollaboratorsForReservations(reservationIDs []int64) (map[int64]Collaborator, error) {
-	out := map[int64]Collaborator{}
+// CollaboratorsForReservations batches the "currently relevant" collaborator
+// rows (pending or approved - never the rejected/revoked history) for many
+// reservations in a single query, keyed by reservation id. This is what the
+// bookings list needs: unlike CollaboratorsForReservation (singular), it
+// must be called once for the whole page, not once per row, or every page
+// load does one query per active booking (N+1). If a future caller needs
+// full history for many reservations too, add a separate batch helper
+// instead of widening this one's WHERE clause.
+func (s *Store) CollaboratorsForReservations(reservationIDs []int64) (map[int64][]Collaborator, error) {
+	out := map[int64][]Collaborator{}
 	if len(reservationIDs) == 0 {
 		return out, nil
 	}
 	q := `SELECT id, reservation_id, user_id, username, name, team, status, requested_at, decided_at, decided_by
-	      FROM reservation_collaborators WHERE status = 'approved' AND reservation_id IN (?` +
+	      FROM reservation_collaborators
+	      WHERE status IN ('pending','approved') AND reservation_id IN (?` +
 		repeatPlaceholders(len(reservationIDs)-1) + `)`
 	args := make([]any, len(reservationIDs))
 	for i, id := range reservationIDs {
@@ -183,7 +202,7 @@ func (s *Store) ActiveCollaboratorsForReservations(reservationIDs []int64) (map[
 		return nil, err
 	}
 	for _, c := range list {
-		out[c.ReservationID] = c
+		out[c.ReservationID] = append(out[c.ReservationID], c)
 	}
 	return out, nil
 }
