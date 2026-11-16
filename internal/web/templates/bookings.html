@@ -37,7 +37,20 @@
       <label class="wide"><span>Purpose <span class="required-mark">*</span></span> <input type="text" name="purpose" placeholder="e.g. Payment QA" maxlength="200" required></label>
       <div class="calwrap">
         <div class="cal-label">Dates <span class="required-mark">*</span></div>
-        <div class="cal" id="bookCal"></div>
+        <div class="cal-row">
+          <div class="cal" id="bookCal"></div>
+          <aside class="collab-howto" aria-label="How to use co-owners">
+            <div class="collab-howto-title">Pairing with someone else? Add a co-owner</div>
+            <p>A QA and an engineer working the same task can both get deploy access to one booking — one owner, one co-owner.</p>
+            <ol>
+              <li>Book the slot as usual. You become its <b>owner</b>.</li>
+              <li>Your partner opens this page, types their team in the <b>Co-owner</b> column of that booking, and clicks <b>Request to join</b>.</li>
+              <li>You see the request on the same row and click <b>Approve</b> (or <b>Reject</b>).</li>
+              <li>Once approved, your partner can deploy to that slot too, until the booking ends. Either of you can end it early: they click <b>Leave</b>, or you click <b>Revoke</b>.</li>
+            </ol>
+            <p class="hint">Only one co-owner at a time per booking.</p>
+          </aside>
+        </div>
         <div class="cal-legend">
           <span><i class="sw sw-sel"></i>Selected</span>
           <span><i class="sw sw-booked"></i>Booked by someone else</span>

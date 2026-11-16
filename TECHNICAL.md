@@ -37,6 +37,7 @@ internal/
     users.go                   CRUD user, bcrypt, temp password
     sessions.go                cookie session token
     reservations.go            booking per-slot per-hari, cek overlap transaksional
+    collaborators.go           co-owner booking: request/approve/reject/leave/revoke, IsHolder
     deployments.go             riwayat deploy, log baris per baris, slot lock
     slots.go                   slot_settings (hidden/show)
     audit.go                   audit_logs, search
@@ -55,7 +56,7 @@ internal/
   deploy/       deploy.go      orkestrasi deploy: cek booking, slot lock, state machine, watcher goroutine
   web/                         HTTP handlers + template
     web.go                     Server struct, routing, cache scan background, dashboard handler
-    bookings.go                handler booking
+    bookings.go                handler booking + co-owner (request/decide/leave/revoke), collabViewsFor
     deploy_handlers.go         handler deploy + SSE log stream
     admin_handlers.go          handler admin (users/slots)
     api_v1.go                  REST API /api/v1 (JSON, API key): tabel apiEndpoints(), DTO, handler
@@ -94,6 +95,55 @@ internal/
 - `ExpireDue()` dipanggil lazy di awal `ListActive()`/`ActiveForSlot()` untuk
   menandai booking yang lewat tanggal sebagai `expired` — tidak ada cron
   terpisah untuk ini.
+
+### 3.2a Co-owner booking
+Satu booking boleh punya **satu owner dan, setelah di-approve owner, satu
+co-owner** — dipakai saat QA dan engineer berpasangan mengerjakan tugas yang
+sama dan keduanya butuh akses deploy ke env yang sama.
+
+- Model data: tabel `reservation_collaborators` (`store/schema.sql`), bukan
+  kolom kedua di `reservations`. Setiap request menjadi baris baru berstatus
+  `pending` → `approved`/`rejected`/`revoked`; histori tidak pernah ditimpa,
+  dipakai untuk audit (`store/collaborators.go`).
+- **Hanya satu baris `pending`/`approved` aktif per reservation** pada satu
+  waktu (dicek dalam transaksi di `RequestCollaborator`, sama seperti cek
+  overlap booking) — begitu statusnya berubah jadi `rejected`/`revoked`, slot
+  co-owner terbuka lagi untuk orang lain.
+- Owner **tidak bisa** request co-ownership atas booking miliknya sendiri
+  (`ErrCollabIsOwner`); request hanya boleh berasal dari non-owner — siapa
+  yang membuat booking lebih dulu (QA atau engineer) tidak relevan terhadap
+  desain, keduanya cuma "owner"/"non-owner".
+- **`store.IsHolder(res, userID)` adalah satu-satunya tempat yang dipakai
+  untuk mengecek "siapa yang boleh bertindak atas env ini"** (dipakai
+  `deploy.checkBooking`): true untuk owner atau co-owner `approved`, **dan
+  selalu false kalau `res.Status != active`** — begitu booking berakhir
+  (release/expired/override), owner maupun co-owner otomatis kehilangan akses
+  tanpa perlu menyentuh baris `reservation_collaborators` sama sekali. Ini
+  penting: jangan cek `res.UserID == userID` secara langsung di kode baru,
+  selalu lewat `IsHolder`.
+- **Leave vs revoke** keduanya berakhir di status `revoked` yang sama — satu
+  dipicu oleh co-owner sendiri (`handleCollabLeave`), satu oleh owner/admin
+  (`handleCollabRevoke`). Dibedakan hanya di audit log (`LEAVE_COLLAB` vs
+  `REVOKE_COLLAB`), bukan di kolom `status`. Ini sengaja — lihat komentar di
+  `store.RevokeCollaborator` sebelum menambah status baru.
+- **Listing halaman bookings** (`collabViewsFor` di `bookings.go`) memanggil
+  `store.CollaboratorsForReservations` (jamak, **satu query batch** untuk
+  semua booking aktif di halaman — mengembalikan hanya baris
+  `pending`/`approved`). Jangan ganti dengan loop yang memanggil
+  `CollaboratorsForReservation` (tunggal) per baris; itu N+1 query dan pernah
+  jadi temuan review.
+- Otorisasi approve/reject/revoke dicek di **handler**, bukan di store:
+  `handleCollabDecide`/`handleCollabRevoke` mengizinkan owner booking atau
+  admin; `handleCollabLeave` hanya mengizinkan co-owner itu sendiri (403
+  untuk siapa pun lain, termasuk owner).
+- UI (`templates/bookings.html`) merender state berbeda tergantung siapa yang
+  login: non-owner tanpa request aktif melihat form "Request to join"; owner
+  dengan request pending melihat Approve/Reject beserta nama requester;
+  requester sendiri hanya melihat "Waiting for approval"; pihak ketiga hanya
+  melihat "Request pending" generik **tanpa nama** (privasi — siapa yang
+  request hanya terlihat oleh owner); co-owner approved melihat Leave,
+  owner/admin melihat Revoke. Halaman juga menampilkan catatan cara pakai
+  statis di samping kalender booking (`.collab-howto` di `style.css`).
 
 ### 3.3 Deploy
 - `deploy.Service.Start()` (`internal/deploy/deploy.go`):
@@ -285,7 +335,11 @@ terlewat:
 - `internal/auth`, `internal/config`, `internal/store`, `internal/deploy`,
   `internal/web` punya test suite (`go test ./...`). Tes `internal/web`
   sebaiknya dijalankan dengan `TZ=Asia/Jakarta` (sama dengan produksi) dan
-  sesekali `TZ=UTC`. `internal/discovery` **belum** punya test otomatis
+  sesekali `TZ=UTC`. Co-owner booking punya tes di tiga lapisan:
+  `store/collaborators_test.go` (CRUD + `IsHolder`), `deploy/deploy_test.go`
+  (`TestApprovedCoOwnerCanDeploy` dkk.), dan `web/collab_test.go` +
+  `web/collab_template_test.go` (handler lewat HTTP sungguhan + HTML yang
+  dirender per state). `internal/discovery` **belum** punya test otomatis
   (semua perbaikannya sejauh ini diverifikasi manual di server staging
   sungguhan karena tergantung `docker`/`git` binary + filesystem host asli).
 - Test helper `internal/web/admin_users_test.go:newTestServer` membuat

@@ -12,6 +12,29 @@ import (
 // These tests exercise the rendered /bookings HTML for each co-ownership
 // state, from every viewer's point of view - complementing collab_test.go
 // (which checks the handlers/redirects) with what the page actually shows.
+//
+// Assertions are scoped to the "Current & upcoming bookings" table via
+// bookingsTableHTML, not the whole page: the page also carries a static
+// how-to note next to the calendar that mentions "Request to join",
+// "Approve", "Leave", "Revoke", etc. as plain instructional text, which
+// would otherwise produce false positives/negatives for strings.Contains
+// checks that are really about one row's buttons.
+
+// bookingsTableHTML returns just the "Current & upcoming bookings" table
+// from a rendered /bookings page, between its <h2> and the next <h2>.
+func bookingsTableHTML(t *testing.T, page string) string {
+	t.Helper()
+	start := strings.Index(page, "Current &amp; upcoming bookings")
+	if start < 0 {
+		t.Fatalf("bookings table heading not found: %s", page)
+	}
+	rest := page[start:]
+	end := strings.Index(rest, "<h2>")
+	if end < 0 {
+		t.Fatalf("no following section after bookings table: %s", page)
+	}
+	return rest[:end]
+}
 
 func TestCollabTemplate_CanRequestShownToStranger(t *testing.T) {
 	ts, st := newTestServer(t, "dev-01")
@@ -19,7 +42,7 @@ func TestCollabTemplate_CanRequestShownToStranger(t *testing.T) {
 	eng := provisionAndLogin(t, ts, st, "eng1", store.RoleEngineering)
 	bookAs(t, qa, ts.URL, st, "dev-01", "QA One", "team-qa")
 
-	page := body(t, eng, ts.URL+"/bookings")
+	page := bookingsTableHTML(t, body(t, eng, ts.URL+"/bookings"))
 	if !strings.Contains(page, "Request to join") {
 		t.Fatalf("stranger should see a request form: %s", page)
 	}
@@ -27,7 +50,7 @@ func TestCollabTemplate_CanRequestShownToStranger(t *testing.T) {
 		t.Fatal("request form action missing")
 	}
 	// Owner must not see a request-to-join form on their own booking.
-	ownerPage := body(t, qa, ts.URL+"/bookings")
+	ownerPage := bookingsTableHTML(t, body(t, qa, ts.URL+"/bookings"))
 	if strings.Contains(ownerPage, "Request to join") {
 		t.Fatalf("owner must not be offered a request form on their own booking: %s", ownerPage)
 	}
@@ -43,7 +66,7 @@ func TestCollabTemplate_PendingShowsApproveRejectToOwnerOnly(t *testing.T) {
 	r := post(t, eng, ts.URL+"/bookings/collab/request", url.Values{"id": {strconv.FormatInt(resID, 10)}, "team": {"team-eng"}})
 	r.Body.Close()
 
-	ownerPage := body(t, qa, ts.URL+"/bookings")
+	ownerPage := bookingsTableHTML(t, body(t, qa, ts.URL+"/bookings"))
 	if !strings.Contains(ownerPage, "Approve") || !strings.Contains(ownerPage, "Reject") {
 		t.Fatalf("owner should see Approve/Reject: %s", ownerPage)
 	}
@@ -52,7 +75,7 @@ func TestCollabTemplate_PendingShowsApproveRejectToOwnerOnly(t *testing.T) {
 	}
 
 	// The requester sees a waiting state, not approve/reject buttons.
-	engPage := body(t, eng, ts.URL+"/bookings")
+	engPage := bookingsTableHTML(t, body(t, eng, ts.URL+"/bookings"))
 	if strings.Contains(engPage, "Approve") {
 		t.Fatalf("requester must not see Approve on their own pending request: %s", engPage)
 	}
@@ -61,7 +84,7 @@ func TestCollabTemplate_PendingShowsApproveRejectToOwnerOnly(t *testing.T) {
 	}
 
 	// A third party sees only that something is pending, no names, no form.
-	strangerPage := body(t, stranger, ts.URL+"/bookings")
+	strangerPage := bookingsTableHTML(t, body(t, stranger, ts.URL+"/bookings"))
 	if strings.Contains(strangerPage, "Request to join") {
 		t.Fatal("stranger must not be offered a request form while one is already pending")
 	}
@@ -87,7 +110,7 @@ func TestCollabTemplate_ApprovedShowsLeaveToCoOwnerAndRevokeToOwner(t *testing.T
 	r.Body.Close()
 
 	// Co-owner sees their name and a Leave button.
-	engPage := body(t, eng, ts.URL+"/bookings")
+	engPage := bookingsTableHTML(t, body(t, eng, ts.URL+"/bookings"))
 	if !strings.Contains(engPage, "Leave") {
 		t.Fatalf("co-owner should see Leave: %s", engPage)
 	}
@@ -96,7 +119,7 @@ func TestCollabTemplate_ApprovedShowsLeaveToCoOwnerAndRevokeToOwner(t *testing.T
 	}
 
 	// Owner sees the co-owner's name and a Revoke button, not Leave.
-	ownerPage := body(t, qa, ts.URL+"/bookings")
+	ownerPage := bookingsTableHTML(t, body(t, qa, ts.URL+"/bookings"))
 	if !strings.Contains(ownerPage, "Revoke") {
 		t.Fatalf("owner should see Revoke: %s", ownerPage)
 	}
@@ -105,7 +128,7 @@ func TestCollabTemplate_ApprovedShowsLeaveToCoOwnerAndRevokeToOwner(t *testing.T
 	}
 
 	// A stranger just sees who the co-owner is, with no action available.
-	strangerPage := body(t, stranger, ts.URL+"/bookings")
+	strangerPage := bookingsTableHTML(t, body(t, stranger, ts.URL+"/bookings"))
 	if strings.Contains(strangerPage, "Leave") || strings.Contains(strangerPage, "Revoke") {
 		t.Fatalf("stranger must not see Leave/Revoke: %s", strangerPage)
 	}
@@ -128,8 +151,22 @@ func TestCollabTemplate_SlotFreeAgainAfterLeave(t *testing.T) {
 	r = post(t, eng, ts.URL+"/bookings/collab/leave", url.Values{"id": {strconv.FormatInt(c.ID, 10)}})
 	r.Body.Close()
 
-	page := body(t, eng, ts.URL+"/bookings")
+	page := bookingsTableHTML(t, body(t, eng, ts.URL+"/bookings"))
 	if !strings.Contains(page, "Request to join") {
 		t.Fatalf("after leaving, a request form should be offered again: %s", page)
+	}
+}
+
+// The static how-to note next to the calendar must appear once per page
+// load and must not depend on any particular booking/collab state existing.
+func TestCollabHowto_AlwaysPresentNextToCalendar(t *testing.T) {
+	ts, st := newTestServer(t, "dev-01")
+	u := provisionAndLogin(t, ts, st, "qa1", store.RoleEngineering)
+	page := body(t, u, ts.URL+"/bookings")
+	if !strings.Contains(page, "collab-howto") {
+		t.Fatalf("expected the co-owner how-to note next to the calendar: %s", page)
+	}
+	if !strings.Contains(page, "Add a co-owner") {
+		t.Fatal("how-to note heading missing")
 	}
 }
